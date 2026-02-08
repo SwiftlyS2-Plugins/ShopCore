@@ -1,0 +1,70 @@
+{
+  "shop.error.item_not_found": "[red]Item [lightred]{0}[default] was not found.",
+  "shop.error.item_disabled": "[red]Item [lightred]{0}[default] is currently disabled.",
+  "shop.error.team_not_allowed": "[red]Your team cannot use [lightred]{0}[default].",
+  "shop.error.already_owned": "[red]You already own [lightred]{0}[default].",
+  "shop.error.insufficient_credits": "[red]Not enough credits for [lightred]{0}[default]. Need [lightred]{1}[default].",
+  "shop.error.invalid_amount": "[red]Item [lightred]{0}[default] has an invalid amount for this economy.",
+  "shop.error.not_sellable": "[red]Item [lightred]{0}[default] cannot be sold.",
+  "shop.error.selling_disabled": "[red]Selling is currently disabled by server configuration.",
+  "shop.error.not_owned": "[red]You do not own [lightred]{0}[default].",
+
+  "shop.purchase.success": "[green]Purchased [lightgreen]{0}[green] for [lightgreen]{1}[green]. Balance: [lightgreen]{2}[default].",
+  "shop.sell.success": "[green]Sold [lightgreen]{0}[green] for [lightgreen]{1}[green]. Balance: [lightgreen]{2}[default].",
+  "shop.item.expired": "[yellow]Your item [lightyellow]{0}[yellow] has expired.",
+
+  "shop.credits.current": "[green]Your credits: [lightgreen]{0}[default]",
+  "shop.credits.starting_balance_applied": "[green]Starting balance applied: [lightgreen]{0}[default] credits.",
+  "shop.credits.timed_income": "[green]Timed income: +[lightgreen]{0}[green] credits every [lightgreen]{1}s[default].",
+  "shop.credits.amount_invalid": "[red]Invalid credits amount: [lightred]{0}[default]. Use a positive whole number.",
+  "shop.credits.amount_below_minimum": "[red]Minimum transfer amount is [lightred]{0}[default].",
+  "shop.credits.target_not_found": "[red]Target [lightred]{0}[default] was not found.",
+
+  "shop.credits.gift.disabled": "[red]Credit gifting is disabled.",
+  "shop.credits.gift.usage": "[yellow]Usage: giftcredits <target> <amount>",
+  "shop.credits.gift.self_not_allowed": "[red]You cannot gift credits to yourself.",
+  "shop.credits.gift.sender_success": "[green]You gifted [lightgreen]{0}[green] credits to [lightgreen]{1}[green]. Balance: [lightgreen]{2}[default].",
+  "shop.credits.gift.receiver_success": "[green]You received [lightgreen]{1}[green] credits from [lightgreen]{0}[default].",
+
+  "shop.credits.admin.give.usage": "[yellow]Usage: givecredits <target> <amount>",
+  "shop.credits.admin.give.success": "[green]Added [lightgreen]{0}[green] credits to [lightgreen]{1}[green]. New balance: [lightgreen]{2}[default].",
+  "shop.credits.admin.give.notified_target": "[yellow]{0} gave you [lightgreen]{1}[yellow] credits. Balance: [lightgreen]{2}[default].",
+
+  "shop.credits.admin.remove.usage": "[yellow]Usage: removecredits <target> <amount>",
+  "shop.credits.admin.remove.target_has_no_credits": "[red]{0} has no credits to remove.",
+  "shop.credits.admin.remove.exceeds_balance": "[red]Cannot remove that much from {0}. Current balance: {1}.",
+  "shop.credits.admin.remove.success": "[green]Removed [lightgreen]{0}[green] credits from [lightgreen]{1}[green]. New balance: [lightgreen]{2}[default].",
+  "shop.credits.admin.remove.notified_target": "[yellow]{0} removed [lightred]{1}[yellow] credits from your balance. New balance: [lightgreen]{2}[default].",
+
+  "shop.menu.comment": "Select an option",
+  "shop.menu.main.title": "Shop",
+  "shop.menu.main.credits": "Credits: {0}",
+  "shop.menu.main.buy": "Buy",
+  "shop.menu.main.inventory": "Inventory",
+
+  "shop.menu.buy.title": "Shop / Buy / Categories",
+  "shop.menu.buy.category.title": "Shop / Buy / {0}",
+  "shop.menu.buy.item.entry": "{0} | {1} credits",
+  "shop.menu.buy.item.owned": "{0} | Owned",
+  "shop.menu.buy.item.comment": "Category: {0} | {1}",
+
+  "shop.menu.inventory.title": "Shop / Inventory / Categories",
+  "shop.menu.inventory.category.title": "Shop / Inventory / {0}",
+  "shop.menu.inventory.item.title": "Inventory / {0}",
+  "shop.menu.inventory.item.entry": "{0} | {1}",
+  "shop.menu.inventory.item.info": "Item: {0} | Category: {1}",
+  "shop.menu.inventory.item.sell": "Sell item (+{0} credits)",
+  "shop.menu.inventory.item.sell_hint": "Sell value: +{0} credits",
+  "shop.menu.inventory.item.not_sellable": "This item cannot be sold",
+
+  "shop.menu.category.entry": "{0} ({1})",
+  "shop.menu.empty.buy": "No items available for purchase",
+  "shop.menu.empty.inventory": "Your inventory is empty",
+  "shop.menu.empty.category": "No items in category: {0}",
+  "shop.menu.empty.category_inventory": "No owned items in category: {0}",
+
+  "shop.menu.item.duration": "Duration: {0}s",
+  "shop.menu.item.duration.permanent": "Permanent",
+  "shop.menu.item.remaining": "{0}s remaining",
+  "shop.menu.item.expired": "Expired"
+}

@@ -1,0 +1,7 @@
+.vs/
+**/obj
+**/bin
+build/
+swiftlys2/
+*.zip
+*.sln
