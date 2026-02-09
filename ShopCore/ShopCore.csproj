@@ -26,19 +26,22 @@
 
   <ItemGroup>
     <Reference Include="Cookies.Contract">
-      <HintPath>..\contracts\Cookies.Contract.dll</HintPath>
+      <HintPath>resources\exports\Cookies.Contract.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
   
   <ItemGroup>
     <Reference Include="Economy.Contract">
-      <HintPath>..\contracts\Economy.Contract.dll</HintPath>
+      <HintPath>resources\exports\Economy.Contract.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="resources/exports/**/*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="resources/translations/**/*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
