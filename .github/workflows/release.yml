@@ -63,8 +63,35 @@ jobs:
         shell: bash
         run: |
           rm -rf build
-          dotnet restore ShopCore.sln
-          dotnet build ShopCore.sln -c Release --nologo
+          SOLUTION=$(find . -maxdepth 2 -type f -name "*.sln" | head -n 1 || true)
+
+          if [[ -n "${SOLUTION}" ]]; then
+            echo "Using solution: ${SOLUTION}"
+            dotnet restore "${SOLUTION}"
+            dotnet build "${SOLUTION}" -c Release --nologo --no-restore
+            exit 0
+          fi
+
+          echo "No .sln found in repository; building projects directly."
+          shopt -s nullglob
+          PROJECTS=(
+            "ShopCore.Contract/ShopCore.Contract.csproj"
+            "ShopCore/ShopCore.csproj"
+            Modules/*/*.csproj
+          )
+
+          if [[ ${#PROJECTS[@]} -eq 0 ]]; then
+            echo "No projects found to build."
+            exit 1
+          fi
+
+          for PROJECT in "${PROJECTS[@]}"; do
+            if [[ -f "${PROJECT}" ]]; then
+              echo "Building ${PROJECT}"
+              dotnet restore "${PROJECT}"
+              dotnet build "${PROJECT}" -c Release --nologo --no-restore
+            fi
+          done
 
       - name: Create Release Archive
         id: archive
