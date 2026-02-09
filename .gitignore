@@ -5,3 +5,7 @@ build/
 swiftlys2/
 *.zip
 *.sln
+
+# Keep exported contract DLLs versioned in repo, even if global ignore rules include *.dll.
+!ShopCore/resources/exports/
+!ShopCore/resources/exports/*.dll
