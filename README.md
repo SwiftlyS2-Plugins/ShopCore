@@ -314,7 +314,7 @@ public class MyModuleConfig
 // Example: block expensive items for non-admin players.
 shop.OnBeforeItemPurchase += context =>
 {
-    if (context.Item.Price > 5000 && !Core.Permission.HasFlag(context.Player, "shop.vip"))
+    if (context.Item.Price > 5000 && !Core.Permission.PlayerHasPermission(context.Player.SteamID, "shop.vip"))
     {
         context.BlockLocalized("shop.error.vip_required", context.Item.DisplayName);
         // or: context.Block("You need VIP to buy this item.");
