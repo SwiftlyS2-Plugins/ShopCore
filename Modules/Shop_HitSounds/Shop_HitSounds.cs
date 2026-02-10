@@ -22,7 +22,7 @@ public class Shop_HitSounds : BasePlugin
     private const string ModulePluginId = "Shop_HitSounds";
     private const string TemplateFileName = "items_config.jsonc";
     private const string TemplateSectionName = "Main";
-    private const string DefaultCategory = "Visuals/Hit Sounds";
+    private const string DefaultCategory = "Sounds/Hit Sounds";
 
     private IShopCoreApiV1? shopApi;
     private bool handlersRegistered;
@@ -499,19 +499,6 @@ public class Shop_HitSounds : BasePlugin
                     Id = "hitsound_bell_hourly",
                     DisplayNameKey = "module.hitsounds.item.bell.name",
                     SoundPath = "sounds/training/bell_normal.vsnd_c",
-                    Price = 1200,
-                    SellPrice = 600,
-                    DurationSeconds = 3600,
-                    Type = nameof(ShopItemType.Temporary),
-                    Team = nameof(ShopItemTeam.Any),
-                    Enabled = true,
-                    CanBeSold = true
-                },
-                new HitSoundItemTemplate
-                {
-                    Id = "hitsound_crate_hourly",
-                    DisplayNameKey = "module.hitsounds.item.crate.name",
-                    SoundPath = "sounds/ui/csgo_ui_crate_item_scroll.vsnd_c",
                     Price = 1200,
                     SellPrice = 600,
                     DurationSeconds = 3600,
