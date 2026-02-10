@@ -327,6 +327,23 @@ public partial class ShopCore
         ReplyCommand(context, "shop.admin.status.templates", templateCount);
     }
 
+    private void HandleAdminReloadModulesConfigCommand(ICommandContext context)
+    {
+        if (!ReloadModuleConfigurations(out var copiedTemplates, out var reloadedModules, out var failedModules, out var error))
+        {
+            ReplyCommand(context, "shop.admin.reload_modules_config.failed", error ?? "unknown error");
+            return;
+        }
+
+        ReplyCommand(
+            context,
+            "shop.admin.reload_modules_config.success",
+            copiedTemplates,
+            reloadedModules,
+            failedModules
+        );
+    }
+
     private static int CountCentralModuleTemplateFiles(string? shopCorePath)
     {
         if (string.IsNullOrWhiteSpace(shopCorePath))

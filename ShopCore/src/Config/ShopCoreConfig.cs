@@ -28,6 +28,7 @@ public sealed class AdminCommandsConfig
     public List<string> GiveCredits { get; set; } = ["givecredits", "addcredits"];
     public List<string> RemoveCredits { get; set; } = ["removecredits", "takecredits", "subcredits"];
     public List<string> ReloadCore { get; set; } = ["shopcorereload", "shopreload"];
+    public List<string> ReloadModulesConfig { get; set; } = ["reloadmodulesconfig", "shopmodulesreload"];
     public List<string> Status { get; set; } = ["shopcorestatus", "shopstatus"];
 }
 

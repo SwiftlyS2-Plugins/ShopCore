@@ -122,6 +122,13 @@ public class Shop_Healtshot : BasePlugin
             moduleConfig = CreateDefaultConfig();
             category = moduleConfig.Settings.Category;
             healthshotDesignerName = moduleConfig.Settings.WeaponDesignerName;
+            _ = shopApi.SaveModuleTemplateConfig(
+                ModulePluginId,
+                moduleConfig,
+                TemplateFileName,
+                TemplateSectionName,
+                overwrite: true
+            );
         }
 
         var registeredCount = 0;

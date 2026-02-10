@@ -58,6 +58,7 @@ public partial class ShopCore
         Settings.Commands.Admin.GiveCredits = NormalizeCommandList(Settings.Commands.Admin.GiveCredits, ["givecredits", "addcredits"]);
         Settings.Commands.Admin.RemoveCredits = NormalizeCommandList(Settings.Commands.Admin.RemoveCredits, ["removecredits", "takecredits", "subcredits"]);
         Settings.Commands.Admin.ReloadCore = NormalizeCommandList(Settings.Commands.Admin.ReloadCore, ["shopcorereload", "shopreload"]);
+        Settings.Commands.Admin.ReloadModulesConfig = NormalizeCommandList(Settings.Commands.Admin.ReloadModulesConfig, ["reloadmodulesconfig", "shopmodulesreload"]);
         Settings.Commands.Admin.Status = NormalizeCommandList(Settings.Commands.Admin.Status, ["shopcorestatus", "shopstatus"]);
 
         if (string.IsNullOrWhiteSpace(Settings.Commands.Admin.Permission))
@@ -160,6 +161,7 @@ public partial class ShopCore
         RegisterCommandList(Settings.Commands.Admin.GiveCredits, HandleAdminGiveCreditsCommand, Settings.Commands.Admin.Permission);
         RegisterCommandList(Settings.Commands.Admin.RemoveCredits, HandleAdminRemoveCreditsCommand, Settings.Commands.Admin.Permission);
         RegisterCommandList(Settings.Commands.Admin.ReloadCore, HandleAdminReloadCoreCommand, Settings.Commands.Admin.Permission);
+        RegisterCommandList(Settings.Commands.Admin.ReloadModulesConfig, HandleAdminReloadModulesConfigCommand, Settings.Commands.Admin.Permission);
         RegisterCommandList(Settings.Commands.Admin.Status, HandleAdminStatusCommand, Settings.Commands.Admin.Permission);
     }
 
@@ -522,6 +524,117 @@ public partial class ShopCore
         {
             error = ex.Message;
             Core.Logger.LogError(ex, "Failed to reload ShopCore runtime configuration.");
+            return false;
+        }
+    }
+
+    private int EnsureCentralModuleTemplates()
+    {
+        try
+        {
+            var shopCorePath = GetPluginPath("ShopCore");
+            if (string.IsNullOrWhiteSpace(shopCorePath))
+            {
+                return 0;
+            }
+
+            var centralModulesRoot = Path.Combine(shopCorePath, "resources", "templates", "modules");
+            Directory.CreateDirectory(centralModulesRoot);
+
+            var copiedFiles = 0;
+            var pluginPaths = Core.PluginManager.GetPluginPaths();
+            var knownModules = new HashSet<string>(shopApi.GetKnownModulePluginIds(), StringComparer.OrdinalIgnoreCase);
+            foreach (var moduleId in knownModules)
+            {
+                if (string.Equals(moduleId, "ShopCore", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!pluginPaths.TryGetValue(moduleId, out var pluginPath))
+                {
+                    continue;
+                }
+
+                var sourceTemplatesRoot = Path.Combine(pluginPath, "resources", "templates");
+                if (!Directory.Exists(sourceTemplatesRoot))
+                {
+                    continue;
+                }
+
+                var templateFiles = Directory.GetFiles(sourceTemplatesRoot, "*.jsonc", SearchOption.AllDirectories);
+                if (templateFiles.Length == 0)
+                {
+                    continue;
+                }
+
+                foreach (var templateFile in templateFiles)
+                {
+                    var relativePath = Path.GetRelativePath(sourceTemplatesRoot, templateFile);
+                    var destinationPath = Path.Combine(centralModulesRoot, moduleId, relativePath);
+                    if (File.Exists(destinationPath))
+                    {
+                        continue;
+                    }
+
+                    var destinationDirectory = Path.GetDirectoryName(destinationPath);
+                    if (!string.IsNullOrWhiteSpace(destinationDirectory))
+                    {
+                        Directory.CreateDirectory(destinationDirectory);
+                    }
+
+                    File.Copy(templateFile, destinationPath, overwrite: false);
+                    copiedFiles++;
+                }
+            }
+
+            return copiedFiles;
+        }
+        catch (Exception ex)
+        {
+            Core.Logger.LogWarning(ex, "Failed while syncing module templates to ShopCore resources/templates/modules.");
+            return 0;
+        }
+    }
+
+    private bool ReloadModuleConfigurations(out int copiedTemplates, out int reloadedModules, out int failedModules, out string? error)
+    {
+        copiedTemplates = 0;
+        reloadedModules = 0;
+        failedModules = 0;
+        error = null;
+
+        try
+        {
+            copiedTemplates = EnsureCentralModuleTemplates();
+
+            var loadedPlugins = new HashSet<string>(Core.PluginManager.GetAllPlugins(), StringComparer.OrdinalIgnoreCase);
+            var knownModules = shopApi.GetKnownModulePluginIds();
+            var moduleIds = knownModules
+                .Where(static id => !string.IsNullOrWhiteSpace(id))
+                .Select(static id => id!)
+                .Where(id => !string.Equals(id, "ShopCore", StringComparison.OrdinalIgnoreCase))
+                .Where(loadedPlugins.Contains)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (var moduleId in moduleIds)
+            {
+                if (Core.PluginManager.ReloadPlugin(moduleId, silent: false))
+                {
+                    reloadedModules++;
+                    continue;
+                }
+
+                failedModules++;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            Core.Logger.LogError(ex, "Failed to reload module configurations.");
             return false;
         }
     }

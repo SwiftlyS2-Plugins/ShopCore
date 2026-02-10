@@ -261,6 +261,23 @@ public interface IShopCoreApiV1
         string sectionName = "Main") where T : class, new();
 
     /// <summary>
+    /// Saves a module template config into ShopCore centralized templates folder.
+    /// </summary>
+    /// <typeparam name="T">Config model type.</typeparam>
+    /// <param name="modulePluginId">Module plugin id, e.g. <c>Shop_Healthshot</c>.</param>
+    /// <param name="config">Config payload to save.</param>
+    /// <param name="fileName">Template file name inside <c>resources/templates</c>.</param>
+    /// <param name="sectionName">Optional top-level section name. Empty means root object.</param>
+    /// <param name="overwrite">If true, replaces existing file.</param>
+    /// <returns>True when file is written successfully.</returns>
+    bool SaveModuleTemplateConfig<T>(
+        string modulePluginId,
+        T config,
+        string fileName = "items_config.jsonc",
+        string sectionName = "Main",
+        bool overwrite = true) where T : class;
+
+    /// <summary>
     /// Gets player credits by player instance.
     /// </summary>
     decimal GetCredits(IPlayer player);

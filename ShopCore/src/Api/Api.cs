@@ -14,12 +14,19 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
     {
         PropertyNameCaseInsensitive = true
     };
+    private static readonly JsonSerializerOptions ConfigWriteOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = null
+    };
 
     private readonly ShopCore plugin;
     private readonly object sync = new();
     private readonly object ledgerStoreSync = new();
+    private readonly object knownModulesSync = new();
     private readonly Dictionary<string, ShopItemDefinition> itemsById = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, HashSet<string>> categoryToIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> knownModulePluginIds = new(StringComparer.OrdinalIgnoreCase);
     private IShopLedgerStore ledgerStore = new InMemoryShopLedgerStore(2000);
 
     public ShopCoreApiV1(ShopCore plugin)
@@ -193,6 +200,12 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
         }
 
         var effectiveFileName = string.IsNullOrWhiteSpace(fileName) ? "items_config.jsonc" : fileName.Trim();
+        var trimmedModulePluginId = modulePluginId.Trim();
+
+        lock (knownModulesSync)
+        {
+            knownModulePluginIds.Add(trimmedModulePluginId);
+        }
 
         try
         {
@@ -238,6 +251,11 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
 
             if (!File.Exists(centralizedTemplatePath))
             {
+                CreateFallbackCentralizedTemplate<T>(modulePluginId, centralizedTemplatePath, sectionName);
+            }
+
+            if (!File.Exists(centralizedTemplatePath))
+            {
                 plugin.LogDebug(
                     "Centralized module template config not found for module '{ModulePluginId}'. Expected path: {TemplatePath}",
                     modulePluginId,
@@ -277,6 +295,100 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
         }
     }
 
+    public bool SaveModuleTemplateConfig<T>(
+        string modulePluginId,
+        T config,
+        string fileName = "items_config.jsonc",
+        string sectionName = "Main",
+        bool overwrite = true) where T : class
+    {
+        if (string.IsNullOrWhiteSpace(modulePluginId) || config is null)
+        {
+            return false;
+        }
+
+        var effectiveFileName = string.IsNullOrWhiteSpace(fileName) ? "items_config.jsonc" : fileName.Trim();
+        try
+        {
+            var normalizedFileName = NormalizeRelativeTemplatePath(effectiveFileName);
+            if (normalizedFileName is null)
+            {
+                plugin.LogWarning(
+                    "Rejected module template config save due to invalid relative template path '{FileName}'. Module='{ModulePluginId}'.",
+                    effectiveFileName,
+                    modulePluginId
+                );
+                return false;
+            }
+
+            var shopCorePath = plugin.GetPluginPath("ShopCore");
+            if (string.IsNullOrWhiteSpace(shopCorePath))
+            {
+                plugin.LogWarning("Unable to resolve ShopCore plugin path while saving module config for '{ModulePluginId}'.", modulePluginId);
+                return false;
+            }
+
+            var centralizedTemplatePath = Path.Combine(
+                shopCorePath,
+                "resources",
+                "templates",
+                "modules",
+                modulePluginId.Trim(),
+                normalizedFileName
+            );
+
+            if (!overwrite && File.Exists(centralizedTemplatePath))
+            {
+                return false;
+            }
+
+            var directory = Path.GetDirectoryName(centralizedTemplatePath);
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            object payload = config;
+            if (!string.IsNullOrWhiteSpace(sectionName))
+            {
+                payload = new Dictionary<string, object?>
+                {
+                    [sectionName] = config
+                };
+            }
+
+            var serialized = JsonSerializer.Serialize(payload, ConfigWriteOptions);
+            File.WriteAllText(centralizedTemplatePath, serialized);
+
+            plugin.LogDebug(
+                "Saved centralized module config for '{ModulePluginId}' at '{TemplatePath}'.",
+                modulePluginId,
+                centralizedTemplatePath
+            );
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            plugin.LogWarning(
+                ex,
+                "Failed saving module template config. Module='{ModulePluginId}', File='{FileName}', Section='{SectionName}'.",
+                modulePluginId,
+                effectiveFileName,
+                sectionName
+            );
+            return false;
+        }
+    }
+
+    internal IReadOnlyCollection<string> GetKnownModulePluginIds()
+    {
+        lock (knownModulesSync)
+        {
+            return knownModulePluginIds.ToArray();
+        }
+    }
+
     private void EnsureCentralizedTemplate(string modulePluginId, string moduleTemplatePath, string centralizedTemplatePath)
     {
         if (File.Exists(centralizedTemplatePath))
@@ -298,6 +410,33 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
         File.Copy(moduleTemplatePath, centralizedTemplatePath, overwrite: false);
         plugin.LogDebug(
             "Created centralized module config template for '{ModulePluginId}' at '{TemplatePath}'.",
+            modulePluginId,
+            centralizedTemplatePath
+        );
+    }
+
+    private void CreateFallbackCentralizedTemplate<T>(string modulePluginId, string centralizedTemplatePath, string sectionName) where T : class, new()
+    {
+        var directory = Path.GetDirectoryName(centralizedTemplatePath);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        object payload = new T();
+        if (!string.IsNullOrWhiteSpace(sectionName))
+        {
+            payload = new Dictionary<string, object?>
+            {
+                [sectionName] = payload
+            };
+        }
+
+        var serialized = JsonSerializer.Serialize(payload, ConfigWriteOptions);
+        File.WriteAllText(centralizedTemplatePath, serialized);
+
+        plugin.LogDebug(
+            "Created fallback centralized module config for '{ModulePluginId}' at '{TemplatePath}'.",
             modulePluginId,
             centralizedTemplatePath
         );

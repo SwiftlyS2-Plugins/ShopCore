@@ -40,6 +40,8 @@
 
   "shop.admin.reload.success": "ShopCore configuration reloaded.",
   "shop.admin.reload.failed": "ShopCore reload failed: [lightred]{0}[default].",
+  "shop.admin.reload_modules_config.success": "Modules config reloaded. New templates: [lightyellow]{0}[default], Reloaded modules: [lightyellow]{1}[default], Failed: [lightyellow]{2}[default].",
+  "shop.admin.reload_modules_config.failed": "Modules config reload failed: [lightred]{0}[default].",
   "shop.admin.status.header": "ShopCore status:",
   "shop.admin.status.dependencies": "Dependencies -> Cookies: [lightyellow]{0}[default], Economy: [lightyellow]{1}[default]",
   "shop.admin.status.wallet": "Wallet: [lightyellow]{0}[default]",
