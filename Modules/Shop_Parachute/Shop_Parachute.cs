@@ -5,8 +5,10 @@ using SwiftlyS2.Shared.Events;
 using SwiftlyS2.Shared.GameEventDefinitions;
 using SwiftlyS2.Shared.GameEvents;
 using SwiftlyS2.Shared.Misc;
+using SwiftlyS2.Shared.Natives;
 using SwiftlyS2.Shared.Players;
 using SwiftlyS2.Shared.Plugins;
+using SwiftlyS2.Shared.SchemaDefinitions;
 
 namespace ShopCore;
 
@@ -24,16 +26,24 @@ public class Shop_Parachute : BasePlugin
     private const string TemplateFileName = "items_config.jsonc";
     private const string TemplateSectionName = "Main";
     private const string DefaultCategory = "Movement/Parachute";
-    private const float VelocityUpdateIntervalSeconds = 0.05f;
+    private const int MaxPlayers = 65;
+    private const float PhysicsUpdateIntervalSeconds = 0.05f;
     private const float VelocityEpsilon = 0.5f;
+
+    private sealed class PlayerData
+    {
+        public CDynamicProp? Entity { get; set; }
+        public bool Flying { get; set; }
+        public bool SkipTick { get; set; } = true;
+    }
 
     private IShopCoreApiV1? shopApi;
     private bool handlersRegistered;
     private readonly HashSet<string> registeredItemIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> registeredItemOrder = new();
     private readonly Dictionary<string, ParachuteItemRuntime> itemRuntimeById = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<int, bool> parachuteActiveByPlayer = new();
-    private readonly Dictionary<int, float> nextVelocityUpdateAtByPlayer = new();
+    private readonly PlayerData?[] playerDataById = new PlayerData[MaxPlayers];
+    private readonly Dictionary<int, float> nextPhysicsUpdateAtByPlayerId = new();
 
     public Shop_Parachute(ISwiftlyCore core) : base(core) { }
 
@@ -75,6 +85,19 @@ public class Shop_Parachute : BasePlugin
         Core.Event.OnTick += OnTick;
         Core.Event.OnClientDisconnected += OnClientDisconnected;
 
+        if (hotReload)
+        {
+            foreach (var player in Core.PlayerManager.GetAllPlayers())
+            {
+                if (!player.IsValid || player.IsFakeClient)
+                {
+                    continue;
+                }
+
+                EnsurePlayerData(player);
+            }
+        }
+
         if (shopApi is not null && !handlersRegistered)
         {
             RegisterItemsAndHandlers();
@@ -86,27 +109,57 @@ public class Shop_Parachute : BasePlugin
         Core.Event.OnTick -= OnTick;
         Core.Event.OnClientDisconnected -= OnClientDisconnected;
 
-        foreach (var player in Core.PlayerManager.GetAllValidPlayers())
+        foreach (var player in Core.PlayerManager.GetAllPlayers())
         {
-            RestoreDefaultGravity(player);
+            if (!player.IsValid || player.IsFakeClient)
+            {
+                continue;
+            }
+
+            ResetPlayerState(player, removeData: true);
         }
 
-        parachuteActiveByPlayer.Clear();
-        nextVelocityUpdateAtByPlayer.Clear();
+        nextPhysicsUpdateAtByPlayerId.Clear();
         UnregisterItemsAndHandlers();
+    }
+
+    [GameEventHandler(HookMode.Post)]
+    public HookResult OnPlayerConnectFull(EventPlayerConnectFull e)
+    {
+        var player = Core.PlayerManager.GetPlayer(e.UserId);
+        if (player is null || !player.IsValid || player.IsFakeClient)
+        {
+            return HookResult.Continue;
+        }
+
+        EnsurePlayerData(player);
+        return HookResult.Continue;
+    }
+
+    [GameEventHandler(HookMode.Post)]
+    public HookResult OnGameEventPlayerDisconnect(EventPlayerDisconnect e)
+    {
+        var player = Core.PlayerManager.GetPlayer(e.UserId);
+        if (player is null || !player.IsValid)
+        {
+            return HookResult.Continue;
+        }
+
+        ResetPlayerState(player, removeData: true);
+        return HookResult.Continue;
     }
 
     [GameEventHandler(HookMode.Pre)]
     public HookResult OnPlayerSpawn(EventPlayerSpawn e)
     {
         var player = Core.PlayerManager.GetPlayer(e.UserId);
-        if (player is not null && player.IsValid && !player.IsFakeClient)
+        if (player is null || !player.IsValid || player.IsFakeClient)
         {
-            parachuteActiveByPlayer[player.PlayerID] = false;
-            nextVelocityUpdateAtByPlayer.Remove(player.PlayerID);
-            RestoreDefaultGravity(player);
+            return HookResult.Continue;
         }
 
+        ResetPlayerState(player, removeData: false);
+        EnsurePlayerData(player);
         return HookResult.Continue;
     }
 
@@ -114,20 +167,30 @@ public class Shop_Parachute : BasePlugin
     public HookResult OnPlayerDeath(EventPlayerDeath e)
     {
         var player = Core.PlayerManager.GetPlayer(e.UserId);
-        if (player is not null && player.IsValid && !player.IsFakeClient)
+        if (player is null || !player.IsValid || player.IsFakeClient)
         {
-            parachuteActiveByPlayer[player.PlayerID] = false;
-            nextVelocityUpdateAtByPlayer.Remove(player.PlayerID);
-            RestoreDefaultGravity(player);
+            return HookResult.Continue;
         }
 
+        ResetPlayerState(player, removeData: false);
         return HookResult.Continue;
     }
 
-    private void OnClientDisconnected(IOnClientDisconnectedEvent @event)
+    private void OnClientDisconnected(IOnClientDisconnectedEvent e)
     {
-        parachuteActiveByPlayer.Remove(@event.PlayerId);
-        nextVelocityUpdateAtByPlayer.Remove(@event.PlayerId);
+        var player = Core.PlayerManager.GetPlayer(e.PlayerId);
+        if (player is null)
+        {
+            if (e.PlayerId >= 0 && e.PlayerId < MaxPlayers)
+            {
+                playerDataById[e.PlayerId] = null;
+            }
+
+            nextPhysicsUpdateAtByPlayerId.Remove(e.PlayerId);
+            return;
+        }
+
+        ResetPlayerState(player, removeData: true);
     }
 
     private void OnTick()
@@ -137,6 +200,8 @@ public class Shop_Parachute : BasePlugin
             return;
         }
 
+        var currentTime = Core.Engine.GlobalVars.CurrentTime;
+
         foreach (var player in Core.PlayerManager.GetAllValidPlayers())
         {
             if (!player.IsValid || player.IsFakeClient)
@@ -144,16 +209,19 @@ public class Shop_Parachute : BasePlugin
                 continue;
             }
 
+            var data = EnsurePlayerData(player);
+
             if (!TryGetEnabledParachute(player, out var runtime))
             {
-                if (IsParachuteActive(player))
+                if (data.Flying)
                 {
-                    DeactivateParachute(player);
+                    ResetPlayerState(player, removeData: false);
                 }
+
                 continue;
             }
 
-            ApplyParachutePhysics(player, runtime);
+            ApplyParachutePhysics(player, data, runtime, currentTime);
         }
     }
 
@@ -193,7 +261,7 @@ public class Shop_Parachute : BasePlugin
         var registeredCount = 0;
         foreach (var itemTemplate in moduleConfig.Items)
         {
-            if (!TryCreateDefinition(itemTemplate, category, out var definition, out var runtime))
+            if (!TryCreateDefinition(moduleConfig.Settings, itemTemplate, category, out var definition, out var runtime))
             {
                 continue;
             }
@@ -297,122 +365,240 @@ public class Shop_Parachute : BasePlugin
 
                 _ = shopApi.SetItemEnabled(player, otherItemId, false);
             }
+
+            return;
         }
 
-        if (!enabled)
-        {
-            DeactivateParachute(player);
-        }
+        ResetPlayerState(player, removeData: false);
     }
 
     private void OnItemSold(IPlayer player, ShopItemDefinition item, decimal creditedAmount)
     {
-        if (registeredItemIds.Contains(item.Id))
+        if (!registeredItemIds.Contains(item.Id))
         {
-            DeactivateParachute(player);
+            return;
         }
+
+        ResetPlayerState(player, removeData: false);
     }
 
     private void OnItemExpired(IPlayer player, ShopItemDefinition item)
     {
-        if (registeredItemIds.Contains(item.Id))
+        if (!registeredItemIds.Contains(item.Id))
         {
-            DeactivateParachute(player);
+            return;
         }
+
+        ResetPlayerState(player, removeData: false);
     }
 
-    private void ApplyParachutePhysics(IPlayer player, ParachuteItemRuntime runtime)
+    private void ApplyParachutePhysics(IPlayer player, PlayerData data, ParachuteItemRuntime runtime, float currentTime)
     {
-        var pawn = player.PlayerPawn;
-        if (pawn is null || !pawn.IsValid || !player.IsAlive)
+        var playerPawn = player.PlayerPawn;
+        if (playerPawn is null || !playerPawn.IsValid || !player.IsAlive)
         {
-            if (IsParachuteActive(player))
+            if (data.Flying)
             {
-                DeactivateParachute(player);
+                ResetPlayerState(player, removeData: false);
             }
+
             return;
         }
 
-        var pressingUse = IsUsePressed(player);
-        var isGrounded = pawn.GroundEntity.IsValid;
-        var velocity = pawn.AbsVelocity;
+        bool pressingE = (player.PressedButtons & GameButtonFlags.E) != 0;
 
-        if (!pressingUse || isGrounded || velocity.Z >= 0f)
+        if (!pressingE || playerPawn.GroundEntity.IsValid)
         {
-            if (IsParachuteActive(player))
+            if (data.Flying)
             {
-                DeactivateParachute(player);
+                ResetPlayerState(player, removeData: false);
             }
+
             return;
         }
 
-        var targetFallSpeed = -MathF.Abs(runtime.FallSpeed);
-        var currentTime = Core.Engine.GlobalVars.CurrentTime;
-        if (!nextVelocityUpdateAtByPlayer.TryGetValue(player.PlayerID, out var nextApplyTime) ||
-            currentTime >= nextApplyTime)
+        if (runtime.DisableWhenCarryingHostage && IsCarryingHostage(playerPawn))
         {
-            var newZ = runtime.Linear || runtime.FallDecrease <= 0f
-                ? targetFallSpeed
-                : Math.Max(velocity.Z + MathF.Abs(runtime.FallDecrease), targetFallSpeed);
+            if (data.Flying)
+            {
+                ResetPlayerState(player, removeData: false);
+            }
+
+            return;
+        }
+
+        var velocity = playerPawn.AbsVelocity;
+        if (velocity.Z >= 0.0f)
+        {
+            if (data.Flying)
+            {
+                playerPawn.ActualGravityScale = 1.0f;
+                data.Flying = false;
+            }
+
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(runtime.Model))
+        {
+            data.Entity ??= CreateParachuteVisual(playerPawn, runtime.Model);
+            data.SkipTick = !data.SkipTick;
+
+            if (!data.SkipTick && data.Entity?.IsValid is true)
+            {
+                data.Entity.Teleport(playerPawn.AbsOrigin, playerPawn.AbsRotation, playerPawn.AbsVelocity);
+            }
+        }
+
+        if (!nextPhysicsUpdateAtByPlayerId.TryGetValue(player.PlayerID, out var nextApplyAt) || currentTime >= nextApplyAt)
+        {
+            var newZ = ((velocity.Z >= runtime.FallSpeed && runtime.Linear) || runtime.FallDecrease == 0.0f)
+                ? runtime.FallSpeed
+                : velocity.Z + runtime.FallDecrease;
 
             if (MathF.Abs(velocity.Z - newZ) > VelocityEpsilon)
             {
                 velocity.Z = newZ;
-                pawn.AbsVelocity = velocity;
-                pawn.VelocityUpdated();
+                playerPawn.AbsVelocity = velocity;
+                playerPawn.VelocityUpdated();
             }
 
-            nextVelocityUpdateAtByPlayer[player.PlayerID] = currentTime + VelocityUpdateIntervalSeconds;
+            nextPhysicsUpdateAtByPlayerId[player.PlayerID] = currentTime + PhysicsUpdateIntervalSeconds;
         }
 
-        var gravityScale = Math.Clamp(runtime.GravityScale, 0.01f, 1.0f);
-        if (!IsParachuteActive(player) || MathF.Abs(pawn.GravityScale - gravityScale) > 0.001f)
+        if (!data.Flying)
         {
-            pawn.GravityScale = gravityScale;
+            playerPawn.ActualGravityScale = runtime.GravityScale;
+            data.Flying = true;
+        }
+    }
+
+    private PlayerData EnsurePlayerData(IPlayer player)
+    {
+        var playerId = player.PlayerID;
+        if (playerId < 0 || playerId >= MaxPlayers)
+        {
+            return new PlayerData();
         }
 
-        parachuteActiveByPlayer[player.PlayerID] = true;
+        var data = playerDataById[playerId];
+        if (data is not null)
+        {
+            return data;
+        }
+
+        data = new PlayerData();
+        playerDataById[playerId] = data;
+        return data;
     }
 
-    private void DeactivateParachute(IPlayer player)
+    private void ResetPlayerState(IPlayer player, bool removeData)
     {
-        parachuteActiveByPlayer[player.PlayerID] = false;
-        nextVelocityUpdateAtByPlayer.Remove(player.PlayerID);
-        RestoreDefaultGravity(player);
-    }
-
-    private bool IsParachuteActive(IPlayer player)
-    {
-        return parachuteActiveByPlayer.TryGetValue(player.PlayerID, out var active) && active;
-    }
-
-    private static void RestoreDefaultGravity(IPlayer player)
-    {
-        var pawn = player.PlayerPawn;
-        if (pawn is null || !pawn.IsValid)
+        var playerId = player.PlayerID;
+        if (playerId < 0 || playerId >= MaxPlayers)
         {
             return;
         }
 
-        if (MathF.Abs(pawn.GravityScale - 1.0f) > 0.001f)
+        if (playerDataById[playerId] is not { } data)
         {
-            pawn.GravityScale = 1.0f;
+            return;
+        }
+
+        RemoveParachute(data);
+        data.Flying = false;
+        data.SkipTick = true;
+
+        var playerPawn = player.PlayerPawn;
+        if (playerPawn is not null && playerPawn.IsValid)
+        {
+            playerPawn.ActualGravityScale = 1.0f;
+        }
+
+        nextPhysicsUpdateAtByPlayerId.Remove(playerId);
+
+        if (removeData)
+        {
+            playerDataById[playerId] = null;
         }
     }
 
-    private static bool IsUsePressed(IPlayer player)
+    private CDynamicProp? CreateParachuteVisual(CCSPlayerPawn playerPawn, string model)
     {
         try
         {
-            // Source input bit for +use (IN_USE).
-            const ulong useMask = 1UL << 5;
-            var rawButtons = Convert.ToUInt64(player.PressedButtons);
-            return (rawButtons & useMask) != 0;
+            var entity = Core.EntitySystem.CreateEntityByDesignerName<CDynamicProp>("prop_dynamic_override");
+            if (entity?.IsValid is not true)
+            {
+                return null;
+            }
+
+            entity.Teleport(playerPawn.AbsOrigin, QAngle.Zero, Vector.Zero);
+            entity.DispatchSpawn();
+            entity.SetModel(model);
+            return entity;
+        }
+        catch (Exception ex)
+        {
+            Core.Logger.LogWarning(ex, "Failed to create parachute visual entity.");
+            return null;
+        }
+    }
+
+    private static void RemoveParachute(PlayerData data)
+    {
+        if (data.Entity?.IsValid is not true)
+        {
+            data.Entity = null;
+            return;
+        }
+
+        try
+        {
+            var type = data.Entity.GetType();
+            var despawn = type.GetMethod("Despawn", Type.EmptyTypes);
+            if (despawn is not null)
+            {
+                _ = despawn.Invoke(data.Entity, null);
+                data.Entity = null;
+                return;
+            }
+
+            var remove = type.GetMethod("Remove", Type.EmptyTypes);
+            if (remove is not null)
+            {
+                _ = remove.Invoke(data.Entity, null);
+            }
         }
         catch
         {
-            // Fallback for enum name changes across framework versions.
-            return player.PressedButtons.ToString().Contains("Use", StringComparison.OrdinalIgnoreCase);
+        }
+
+        data.Entity = null;
+    }
+
+    private static bool IsCarryingHostage(CCSPlayerPawn playerPawn)
+    {
+        try
+        {
+            var hostageServices = playerPawn.GetType().GetProperty("HostageServices")?.GetValue(playerPawn);
+            if (hostageServices is null)
+            {
+                return false;
+            }
+
+            var carriedHostageProp = hostageServices.GetType().GetProperty("CarriedHostageProp")?.GetValue(hostageServices);
+            if (carriedHostageProp is null)
+            {
+                return false;
+            }
+
+            var value = carriedHostageProp.GetType().GetProperty("Value")?.GetValue(carriedHostageProp);
+            return value is not null;
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -444,6 +630,7 @@ public class Shop_Parachute : BasePlugin
     }
 
     private bool TryCreateDefinition(
+        ParachuteModuleSettings settings,
         ParachuteItemTemplate itemTemplate,
         string category,
         out ShopItemDefinition definition,
@@ -520,12 +707,23 @@ public class Shop_Parachute : BasePlugin
             CanBeSold: itemTemplate.CanBeSold
         );
 
+        var fallSpeed = itemTemplate.FallSpeed ?? settings.DefaultFallSpeed;
+        var fallDecrease = itemTemplate.FallDecrease ?? settings.DefaultFallDecrease;
+        var linear = itemTemplate.Linear ?? settings.DefaultLinear;
+        var gravityScale = itemTemplate.GravityScale ?? settings.DefaultGravityScale;
+        var disableWhenCarryingHostage = itemTemplate.DisableWhenCarryingHostage ?? settings.DisableWhenCarryingHostage;
+        var model = string.IsNullOrWhiteSpace(itemTemplate.Model)
+            ? settings.DefaultModel
+            : itemTemplate.Model.Trim();
+
         runtime = new ParachuteItemRuntime(
             ItemId: itemId,
-            FallSpeed: Math.Max(1f, itemTemplate.FallSpeed),
-            FallDecrease: Math.Max(0f, itemTemplate.FallDecrease),
-            Linear: itemTemplate.Linear,
-            GravityScale: Math.Clamp(itemTemplate.GravityScale, 0.01f, 1.0f),
+            FallSpeed: -MathF.Abs(Math.Max(1f, fallSpeed)),
+            FallDecrease: MathF.Abs(Math.Max(0f, fallDecrease)),
+            Linear: linear,
+            GravityScale: Math.Clamp(gravityScale, 0.01f, 1.0f),
+            Model: model,
+            DisableWhenCarryingHostage: disableWhenCarryingHostage,
             RequiredPermission: itemTemplate.RequiredPermission?.Trim() ?? string.Empty
         );
 
@@ -567,7 +765,7 @@ public class Shop_Parachute : BasePlugin
             var hours = (int)ts.TotalHours;
             var minutes = ts.Minutes;
             return minutes > 0
-                ? $"{hours} Hour{(hours == 1 ? "" : "s")} {minutes} Minute{(minutes == 1 ? "" : "s")}"
+                ? $"{hours} Hour{(hours == 1 ? "" : "s")} {minutes} Minute{(minutes == 1 ? "" : "s")}" 
                 : $"{hours} Hour{(hours == 1 ? "" : "s")}";
         }
 
@@ -576,7 +774,7 @@ public class Shop_Parachute : BasePlugin
             var minutes = (int)ts.TotalMinutes;
             var seconds = ts.Seconds;
             return seconds > 0
-                ? $"{minutes} Minute{(minutes == 1 ? "" : "s")} {seconds} Second{(seconds == 1 ? "" : "s")}"
+                ? $"{minutes} Minute{(minutes == 1 ? "" : "s")} {seconds} Second{(seconds == 1 ? "" : "s")}" 
                 : $"{minutes} Minute{(minutes == 1 ? "" : "s")}";
         }
 
@@ -587,6 +785,21 @@ public class Shop_Parachute : BasePlugin
     {
         config.Settings ??= new ParachuteModuleSettings();
         config.Items ??= [];
+
+        if (config.Settings.DefaultFallSpeed <= 0)
+        {
+            config.Settings.DefaultFallSpeed = 85f;
+        }
+
+        if (config.Settings.DefaultFallDecrease < 0)
+        {
+            config.Settings.DefaultFallDecrease = 15f;
+        }
+
+        if (config.Settings.DefaultGravityScale <= 0f)
+        {
+            config.Settings.DefaultGravityScale = 0.1f;
+        }
     }
 
     private static ParachuteModuleConfig CreateDefaultConfig()
@@ -595,7 +808,13 @@ public class Shop_Parachute : BasePlugin
         {
             Settings = new ParachuteModuleSettings
             {
-                Category = DefaultCategory
+                Category = DefaultCategory,
+                DefaultFallSpeed = 85f,
+                DefaultFallDecrease = 15f,
+                DefaultLinear = true,
+                DefaultGravityScale = 0.1f,
+                DefaultModel = "",
+                DisableWhenCarryingHostage = false
             },
             Items =
             [
@@ -608,8 +827,8 @@ public class Shop_Parachute : BasePlugin
                     DurationSeconds = 3600,
                     FallSpeed = 85f,
                     FallDecrease = 15f,
-                    GravityScale = 0.2f,
                     Linear = true,
+                    GravityScale = 0.1f,
                     Type = nameof(ShopItemType.Temporary),
                     Team = nameof(ShopItemTeam.Any),
                     Enabled = true,
@@ -624,8 +843,8 @@ public class Shop_Parachute : BasePlugin
                     DurationSeconds = 604800,
                     FallSpeed = 50f,
                     FallDecrease = 10f,
-                    GravityScale = 0.1f,
                     Linear = true,
+                    GravityScale = 0.1f,
                     Type = nameof(ShopItemType.Temporary),
                     Team = nameof(ShopItemTeam.Any),
                     Enabled = true,
@@ -640,8 +859,8 @@ public class Shop_Parachute : BasePlugin
                     DurationSeconds = 0,
                     FallSpeed = 40f,
                     FallDecrease = 5f,
-                    GravityScale = 0.08f,
                     Linear = true,
+                    GravityScale = 0.1f,
                     Type = nameof(ShopItemType.Permanent),
                     Team = nameof(ShopItemTeam.Any),
                     Enabled = true,
@@ -658,6 +877,8 @@ internal readonly record struct ParachuteItemRuntime(
     float FallDecrease,
     bool Linear,
     float GravityScale,
+    string Model,
+    bool DisableWhenCarryingHostage,
     string RequiredPermission
 );
 
@@ -670,6 +891,12 @@ internal sealed class ParachuteModuleConfig
 internal sealed class ParachuteModuleSettings
 {
     public string Category { get; set; } = "Movement/Parachute";
+    public float DefaultFallSpeed { get; set; } = 85f;
+    public bool DefaultLinear { get; set; } = true;
+    public float DefaultFallDecrease { get; set; } = 15f;
+    public float DefaultGravityScale { get; set; } = 0.1f;
+    public string DefaultModel { get; set; } = string.Empty;
+    public bool DisableWhenCarryingHostage { get; set; } = false;
 }
 
 internal sealed class ParachuteItemTemplate
@@ -684,9 +911,11 @@ internal sealed class ParachuteItemTemplate
     public string Team { get; set; } = nameof(ShopItemTeam.Any);
     public bool Enabled { get; set; } = true;
     public bool CanBeSold { get; set; } = true;
-    public float FallSpeed { get; set; } = 85f;
-    public float FallDecrease { get; set; } = 15f;
-    public bool Linear { get; set; } = true;
-    public float GravityScale { get; set; } = 0.2f;
+    public float? FallSpeed { get; set; }
+    public float? FallDecrease { get; set; }
+    public bool? Linear { get; set; }
+    public float? GravityScale { get; set; }
+    public string Model { get; set; } = string.Empty;
+    public bool? DisableWhenCarryingHostage { get; set; }
     public string RequiredPermission { get; set; } = string.Empty;
 }
