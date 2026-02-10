@@ -1,0 +1,8 @@
+{
+  "shop.prefix": "[gold]\u2605[red] [Store][default]",
+
+  "module.player_models.item.temporary.name": "{0} ({1})",
+  "module.player_models.item.permanent.name": "{0} (Perm)",
+
+  "module.player_models.error.permission": "You need permission [lightred]{1}[default] to buy [lightred]{0}[default]."
+}
