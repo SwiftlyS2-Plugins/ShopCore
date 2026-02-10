@@ -1,4 +1,5 @@
-{
+﻿{
+  "shop.prefix": "[gold]★[red] [Store][default]",
   "module.bhop.item.fullspeed.name": "Bhop (Full Speed) ({0})",
   "module.bhop.item.limited350.name": "Bhop (Max 350) ({0})",
   "module.bhop.error.permission": "You need permission [lightred]{1}[default] to buy [lightred]{0}[default]."

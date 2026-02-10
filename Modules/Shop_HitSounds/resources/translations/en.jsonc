@@ -1,4 +1,5 @@
-{
+﻿{
+    "shop.prefix": "[gold]★[red] [Store][default]",
     "module.hitsounds.item.bell.name": "Bell Hit Sound ({0})",
     "module.hitsounds.item.crate.name": "Crate Hit Sound ({0})",
     "module.hitsounds.error.permission": "You need [{1}] to purchase {0}."

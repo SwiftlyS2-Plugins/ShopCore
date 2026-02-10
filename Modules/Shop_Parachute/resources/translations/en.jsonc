@@ -1,4 +1,5 @@
-{
+﻿{
+    "shop.prefix": "[gold]★[red] [Store][default]",
     "module.parachute.item.basic.name": "Basic Parachute ({0})",
     "module.parachute.item.premium.name": "Premium Parachute ({0})",
     "module.parachute.item.permanent.name": "Permanent Parachute",

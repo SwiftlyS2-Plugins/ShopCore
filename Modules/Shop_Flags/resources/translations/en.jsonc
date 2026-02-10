@@ -1,4 +1,5 @@
-{
+﻿{
+    "shop.prefix": "[gold]★[red] [Store][default]",
     "module.flags.item.slot.name": "Slot Flag ({0})",
     "module.flags.error.permission": "You need [{1}] to purchase {0}."
 }

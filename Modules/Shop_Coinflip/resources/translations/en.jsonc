@@ -1,4 +1,5 @@
 {
+    "shop.prefix": "[gold]★[red] [Store][default]",
     "module.coinflip.disabled": "Coinflip is currently [lightred]disabled[default].",
     "module.coinflip.usage": "Usage: [lightyellow]!{0} <amount>[default]",
     "module.coinflip.invalid_bet": "Invalid bet. Allowed range: [lightyellow]{0}[default]-[lightyellow]{1}[default].",
