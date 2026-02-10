@@ -34,18 +34,18 @@ Make sure the Cookies and Economy plugins are loaded and export matching contrac
 
 All command aliases are configurable in `shopcore.jsonc`.
 
-| Command (default alias)                                                     | Description                                                |
-| :-------------------------------------------------------------------------- | :--------------------------------------------------------- |
-| `!shop` / `!store`                                                          | Opens the main shop menu.                                  |
-| `!buy`                                                                      | Opens the buy categories menu directly.                    |
-| `!inventory` / `!inv`                                                       | Opens the inventory categories menu directly.              |
-| `!credits` / `!balance`                                                     | Shows your current credits balance.                        |
-| `!giftcredits <target> <amount>` / `!gift <target> <amount>`                | Transfers credits to another player (if enabled).          |
-| `!givecredits <target> <amount>` / `!addcredits ...`                        | Adds credits to a player (admin permission required).      |
-| `!removecredits <target> <amount>` / `!takecredits ...` / `!subcredits ...` | Removes credits from a player (admin permission required). |
-| `!shopcorereload` / `!shopreload`                                            | Reloads ShopCore runtime config and command bindings.      |
-| `!reloadmodulesconfig` / `!shopmodulesreload`                                | Reloads ShopCore module config sync and reloads known shop modules. |
-| `!shopcorestatus` / `!shopstatus`                                            | Shows ShopCore runtime diagnostics.                        |
+| Command (default alias)                                                     | Description                                                         |
+| :-------------------------------------------------------------------------- | :------------------------------------------------------------------ |
+| `!shop` / `!store`                                                          | Opens the main shop menu.                                           |
+| `!buy`                                                                      | Opens the buy categories menu directly.                             |
+| `!inventory` / `!inv`                                                       | Opens the inventory categories menu directly.                       |
+| `!credits` / `!balance`                                                     | Shows your current credits balance.                                 |
+| `!giftcredits <target> <amount>` / `!gift <target> <amount>`                | Transfers credits to another player (if enabled).                   |
+| `!givecredits <target> <amount>` / `!addcredits ...`                        | Adds credits to a player (admin permission required).               |
+| `!removecredits <target> <amount>` / `!takecredits ...` / `!subcredits ...` | Removes credits from a player (admin permission required).          |
+| `!shopcorereload` / `!shopreload`                                           | Reloads ShopCore runtime config and command bindings.               |
+| `!reloadmodulesconfig` / `!shopmodulesreload`                               | Reloads ShopCore module config sync and reloads known shop modules. |
+| `!shopcorestatus` / `!shopstatus`                                           | Shows ShopCore runtime diagnostics.                                 |
 
 Default admin permission: `shopcore.admin.credits`
 
@@ -66,14 +66,14 @@ ShopCore reads config from the `Main` section.
 
 ### Admin Commands (`Main.Commands.Admin`)
 
-| Setting         | Default                                          | Description                                    |
-| :-------------- | :----------------------------------------------- | :--------------------------------------------- |
-| `Permission`    | `shopcore.admin.credits`                         | Permission required for admin credit commands. |
-| `GiveCredits`   | `["givecredits", "addcredits"]`                  | Aliases to add credits to a target.            |
-| `RemoveCredits` | `["removecredits", "takecredits", "subcredits"]` | Aliases to remove credits from a target.       |
-| `ReloadCore`    | `["shopcorereload", "shopreload"]`               | Aliases to reload ShopCore config/commands.    |
-| `ReloadModulesConfig` | `["reloadmodulesconfig", "shopmodulesreload"]` | Aliases to re-sync module configs and reload known ShopCore modules. |
-| `Status`        | `["shopcorestatus", "shopstatus"]`               | Aliases to show ShopCore runtime status.       |
+| Setting               | Default                                          | Description                                                          |
+| :-------------------- | :----------------------------------------------- | :------------------------------------------------------------------- |
+| `Permission`          | `shopcore.admin.credits`                         | Permission required for admin credit commands.                       |
+| `GiveCredits`         | `["givecredits", "addcredits"]`                  | Aliases to add credits to a target.                                  |
+| `RemoveCredits`       | `["removecredits", "takecredits", "subcredits"]` | Aliases to remove credits from a target.                             |
+| `ReloadCore`          | `["shopcorereload", "shopreload"]`               | Aliases to reload ShopCore config/commands.                          |
+| `ReloadModulesConfig` | `["reloadmodulesconfig", "shopmodulesreload"]`   | Aliases to re-sync module configs and reload known ShopCore modules. |
+| `Status`              | `["shopcorestatus", "shopstatus"]`               | Aliases to show ShopCore runtime status.                             |
 
 ### Credits (`Main.Credits`)
 
@@ -134,12 +134,12 @@ ShopCore reads config from the `Main` section.
 
 ### Ledger Persistence (`Main.Ledger.Persistence`)
 
-| Setting             | Default | Description                                                                 |
-| :------------------ | :------ | :-------------------------------------------------------------------------- |
-| `Enabled`           | `false` | Enables persistent ledger backend via FreeSql.                              |
-| `Provider`          | `sqlite`| Persistence provider (`sqlite` currently supported).                        |
-| `ConnectionString`  | `""`    | FreeSql connection string. Empty = `${PluginDataDirectory}/shopcore_ledger.sqlite3`. |
-| `AutoSyncStructure` | `true`  | Auto-creates/updates the ledger table structure.                            |
+| Setting             | Default  | Description                                                                          |
+| :------------------ | :------- | :----------------------------------------------------------------------------------- |
+| `Enabled`           | `false`  | Enables persistent ledger backend via FreeSql.                                       |
+| `Provider`          | `sqlite` | Persistence provider (`sqlite` currently supported).                                 |
+| `ConnectionString`  | `""`     | FreeSql connection string. Empty = `${PluginDataDirectory}/shopcore_ledger.sqlite3`. |
+| `AutoSyncStructure` | `true`   | Auto-creates/updates the ledger table structure.                                     |
 
 ### Example
 
@@ -201,9 +201,9 @@ ShopCore reads config from the `Main` section.
         "Enabled": false,
         "Provider": "sqlite",
         "ConnectionString": "",
-        "AutoSyncStructure": true
-      }
-    }
+        "AutoSyncStructure": true,
+      },
+    },
   },
 }
 ```
@@ -247,11 +247,6 @@ Menus resolve this as:
 - `Category -> Subcategory -> Items` when subcategories are present
 
 This is fully backward compatible with existing one-level categories.
-
-## Module Updates
-
-- `Shop_Killscreen`: added kill screen module.
-- `Shop_SmokeColor`: updated to use subcategory under `Visuals/Smoke Colors`.
 
 ### Recommended Layout
 
