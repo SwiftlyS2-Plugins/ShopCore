@@ -22,7 +22,7 @@ public class Shop_PlayerModels : BasePlugin
 {
     private const string ShopCoreInterfaceKey = "ShopCore.API.v1";
     private const string ModulePluginId = "Shop_PlayerModels";
-    private const string TemplateFileName = "items_config.jsonc";
+    private const string TemplateFileName = "playermodels_config.jsonc";
     private const string TemplateSectionName = "Main";
     private const string DefaultCategory = "Visuals/Player Models";
 
@@ -147,7 +147,7 @@ public class Shop_PlayerModels : BasePlugin
 
         UnregisterItemsAndHandlers();
 
-        var moduleConfig = shopApi.LoadModuleTemplateConfig<PlayerModelsModuleConfig>(
+        var moduleConfig = shopApi.LoadModuleConfig<PlayerModelsModuleConfig>(
             ModulePluginId,
             TemplateFileName,
             TemplateSectionName
@@ -166,7 +166,7 @@ public class Shop_PlayerModels : BasePlugin
             category = moduleConfig.Settings.Category;
             runtimeSettings = moduleConfig.Settings;
 
-            _ = shopApi.SaveModuleTemplateConfig(
+            _ = shopApi.SaveModuleConfig(
                 ModulePluginId,
                 moduleConfig,
                 TemplateFileName,
@@ -655,3 +655,4 @@ internal sealed class PlayerModelItemTemplate
     public bool CanBeSold { get; set; } = true;
     public string RequiredPermission { get; set; } = string.Empty;
 }
+

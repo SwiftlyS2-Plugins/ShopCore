@@ -1,7 +1,9 @@
 using System.Text.Json;
 using Cookies.Contract;
 using Economy.Contract;
+using FreeSql;
 using ShopCore.Contract;
+using SwiftlyS2.Shared.Database;
 using SwiftlyS2.Shared.Players;
 
 namespace ShopCore;
@@ -27,6 +29,7 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
     private readonly Dictionary<string, ShopItemDefinition> itemsById = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, HashSet<string>> categoryToIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> knownModulePluginIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> moduleConfigFileOwners = new(StringComparer.OrdinalIgnoreCase);
     private IShopLedgerStore ledgerStore = new InMemoryShopLedgerStore(2000);
 
     public ShopCoreApiV1(ShopCore plugin)
@@ -189,7 +192,7 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
         }
     }
 
-    public T LoadModuleTemplateConfig<T>(
+    public T LoadModuleConfig<T>(
         string modulePluginId,
         string fileName = "items_config.jsonc",
         string sectionName = "Main") where T : class, new()
@@ -209,62 +212,43 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
 
         try
         {
-            var normalizedFileName = NormalizeRelativeTemplatePath(effectiveFileName);
+            var normalizedFileName = NormalizeRelativeConfigPath(effectiveFileName);
             if (normalizedFileName is null)
             {
                 plugin.LogWarning(
-                    "Rejected module template config load due to invalid relative template path '{FileName}'. Module='{ModulePluginId}'.",
+                    "Rejected module config load due to invalid relative config path '{FileName}'. Module='{ModulePluginId}'.",
                     effectiveFileName,
                     modulePluginId
                 );
                 return new T();
             }
+            TrackModuleConfigOwnership(trimmedModulePluginId, normalizedFileName);
 
-            var modulePath = plugin.GetPluginPath(modulePluginId);
-            if (string.IsNullOrWhiteSpace(modulePath))
-            {
-                plugin.LogWarning(
-                    "Unable to load module template config because plugin path was not found for module '{ModulePluginId}'.",
-                    modulePluginId
-                );
-                return new T();
-            }
+            var centralizedConfigPath = plugin.BuildCentralModuleConfigPath(trimmedModulePluginId, normalizedFileName);
+            var legacyModuleScopedConfigPath = plugin.BuildLegacyModuleScopedCentralModuleConfigPath(trimmedModulePluginId, normalizedFileName);
 
-            var shopCorePath = plugin.GetPluginPath("ShopCore");
-            if (string.IsNullOrWhiteSpace(shopCorePath))
-            {
-                plugin.LogWarning("Unable to resolve ShopCore plugin path while loading module config for '{ModulePluginId}'.", modulePluginId);
-                return new T();
-            }
-
-            var moduleTemplatePath = Path.Combine(modulePath, "resources", "templates", normalizedFileName);
-            var centralizedTemplatePath = Path.Combine(
-                shopCorePath,
-                "resources",
-                "templates",
-                "modules",
+            EnsureCentralizedConfig(
                 modulePluginId,
-                normalizedFileName
+                centralizedConfigPath,
+                legacyModuleScopedConfigPath
             );
 
-            EnsureCentralizedTemplate(modulePluginId, moduleTemplatePath, centralizedTemplatePath);
-
-            if (!File.Exists(centralizedTemplatePath))
+            if (!File.Exists(centralizedConfigPath))
             {
-                CreateFallbackCentralizedTemplate<T>(modulePluginId, centralizedTemplatePath, sectionName);
+                CreateFallbackCentralizedConfig<T>(modulePluginId, centralizedConfigPath, sectionName);
             }
 
-            if (!File.Exists(centralizedTemplatePath))
+            if (!File.Exists(centralizedConfigPath))
             {
                 plugin.LogDebug(
-                    "Centralized module template config not found for module '{ModulePluginId}'. Expected path: {TemplatePath}",
+                    "Centralized module config not found for module '{ModulePluginId}'. Expected path: {ConfigPath}",
                     modulePluginId,
-                    centralizedTemplatePath
+                    centralizedConfigPath
                 );
                 return new T();
             }
 
-            var rawText = File.ReadAllText(centralizedTemplatePath);
+            var rawText = File.ReadAllText(centralizedConfigPath);
             using var document = JsonDocument.Parse(rawText, new JsonDocumentOptions
             {
                 AllowTrailingCommas = true,
@@ -286,7 +270,7 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
         {
             plugin.LogWarning(
                 ex,
-                "Failed loading module template config. Module='{ModulePluginId}', File='{FileName}', Section='{SectionName}'.",
+                "Failed loading module config. Module='{ModulePluginId}', File='{FileName}', Section='{SectionName}'.",
                 modulePluginId,
                 effectiveFileName,
                 sectionName
@@ -295,7 +279,7 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
         }
     }
 
-    public bool SaveModuleTemplateConfig<T>(
+    public bool SaveModuleConfig<T>(
         string modulePluginId,
         T config,
         string fileName = "items_config.jsonc",
@@ -310,39 +294,26 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
         var effectiveFileName = string.IsNullOrWhiteSpace(fileName) ? "items_config.jsonc" : fileName.Trim();
         try
         {
-            var normalizedFileName = NormalizeRelativeTemplatePath(effectiveFileName);
+            var normalizedFileName = NormalizeRelativeConfigPath(effectiveFileName);
             if (normalizedFileName is null)
             {
                 plugin.LogWarning(
-                    "Rejected module template config save due to invalid relative template path '{FileName}'. Module='{ModulePluginId}'.",
+                    "Rejected module config save due to invalid relative config path '{FileName}'. Module='{ModulePluginId}'.",
                     effectiveFileName,
                     modulePluginId
                 );
                 return false;
             }
+            TrackModuleConfigOwnership(modulePluginId.Trim(), normalizedFileName);
 
-            var shopCorePath = plugin.GetPluginPath("ShopCore");
-            if (string.IsNullOrWhiteSpace(shopCorePath))
-            {
-                plugin.LogWarning("Unable to resolve ShopCore plugin path while saving module config for '{ModulePluginId}'.", modulePluginId);
-                return false;
-            }
+            var centralizedConfigPath = plugin.BuildCentralModuleConfigPath(modulePluginId.Trim(), normalizedFileName);
 
-            var centralizedTemplatePath = Path.Combine(
-                shopCorePath,
-                "resources",
-                "templates",
-                "modules",
-                modulePluginId.Trim(),
-                normalizedFileName
-            );
-
-            if (!overwrite && File.Exists(centralizedTemplatePath))
+            if (!overwrite && File.Exists(centralizedConfigPath))
             {
                 return false;
             }
 
-            var directory = Path.GetDirectoryName(centralizedTemplatePath);
+            var directory = Path.GetDirectoryName(centralizedConfigPath);
             if (!string.IsNullOrWhiteSpace(directory))
             {
                 Directory.CreateDirectory(directory);
@@ -358,12 +329,12 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
             }
 
             var serialized = JsonSerializer.Serialize(payload, ConfigWriteOptions);
-            File.WriteAllText(centralizedTemplatePath, serialized);
+            File.WriteAllText(centralizedConfigPath, serialized);
 
             plugin.LogDebug(
-                "Saved centralized module config for '{ModulePluginId}' at '{TemplatePath}'.",
+                "Saved centralized module config for '{ModulePluginId}' at '{ConfigPath}'.",
                 modulePluginId,
-                centralizedTemplatePath
+                centralizedConfigPath
             );
 
             return true;
@@ -372,7 +343,7 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
         {
             plugin.LogWarning(
                 ex,
-                "Failed saving module template config. Module='{ModulePluginId}', File='{FileName}', Section='{SectionName}'.",
+                "Failed saving module config. Module='{ModulePluginId}', File='{FileName}', Section='{SectionName}'.",
                 modulePluginId,
                 effectiveFileName,
                 sectionName
@@ -389,35 +360,43 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
         }
     }
 
-    private void EnsureCentralizedTemplate(string modulePluginId, string moduleTemplatePath, string centralizedTemplatePath)
+    private void EnsureCentralizedConfig(
+        string modulePluginId,
+        string centralizedConfigPath,
+        params string?[] legacyCentralizedConfigPaths)
     {
-        if (File.Exists(centralizedTemplatePath))
+        if (File.Exists(centralizedConfigPath))
         {
             return;
         }
 
-        if (!File.Exists(moduleTemplatePath))
+        foreach (var legacyPath in legacyCentralizedConfigPaths)
         {
+            if (string.IsNullOrWhiteSpace(legacyPath) || !File.Exists(legacyPath))
+            {
+                continue;
+            }
+
+            var destinationDirectory = Path.GetDirectoryName(centralizedConfigPath);
+            if (!string.IsNullOrWhiteSpace(destinationDirectory))
+            {
+                Directory.CreateDirectory(destinationDirectory);
+            }
+
+            File.Copy(legacyPath, centralizedConfigPath, overwrite: false);
+            plugin.LogDebug(
+                "Migrated legacy centralized module config for '{ModulePluginId}' from '{LegacyPath}' to '{ConfigPath}'.",
+                modulePluginId,
+                legacyPath,
+                centralizedConfigPath
+            );
             return;
         }
-
-        var directory = Path.GetDirectoryName(centralizedTemplatePath);
-        if (!string.IsNullOrWhiteSpace(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
-
-        File.Copy(moduleTemplatePath, centralizedTemplatePath, overwrite: false);
-        plugin.LogDebug(
-            "Created centralized module config template for '{ModulePluginId}' at '{TemplatePath}'.",
-            modulePluginId,
-            centralizedTemplatePath
-        );
     }
 
-    private void CreateFallbackCentralizedTemplate<T>(string modulePluginId, string centralizedTemplatePath, string sectionName) where T : class, new()
+    private void CreateFallbackCentralizedConfig<T>(string modulePluginId, string centralizedConfigPath, string sectionName) where T : class, new()
     {
-        var directory = Path.GetDirectoryName(centralizedTemplatePath);
+        var directory = Path.GetDirectoryName(centralizedConfigPath);
         if (!string.IsNullOrWhiteSpace(directory))
         {
             Directory.CreateDirectory(directory);
@@ -433,16 +412,16 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
         }
 
         var serialized = JsonSerializer.Serialize(payload, ConfigWriteOptions);
-        File.WriteAllText(centralizedTemplatePath, serialized);
+        File.WriteAllText(centralizedConfigPath, serialized);
 
         plugin.LogDebug(
-            "Created fallback centralized module config for '{ModulePluginId}' at '{TemplatePath}'.",
+            "Created fallback centralized module config for '{ModulePluginId}' at '{ConfigPath}'.",
             modulePluginId,
-            centralizedTemplatePath
+            centralizedConfigPath
         );
     }
 
-    private static string? NormalizeRelativeTemplatePath(string fileName)
+    private static string? NormalizeRelativeConfigPath(string fileName)
     {
         var normalized = fileName
             .Replace('/', Path.DirectorySeparatorChar)
@@ -466,7 +445,31 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
             return null;
         }
 
-        return string.Join(Path.DirectorySeparatorChar, segments);
+        var leafName = segments.Length == 0 ? string.Empty : segments[^1];
+        return string.IsNullOrWhiteSpace(leafName) ? null : leafName;
+    }
+
+    private void TrackModuleConfigOwnership(string modulePluginId, string normalizedFileName)
+    {
+        lock (knownModulesSync)
+        {
+            if (moduleConfigFileOwners.TryGetValue(normalizedFileName, out var existingOwner))
+            {
+                if (!existingOwner.Equals(modulePluginId, StringComparison.OrdinalIgnoreCase))
+                {
+                    plugin.LogWarning(
+                        "Module config file name collision detected for '{FileName}'. Existing owner='{ExistingOwner}', requested by='{RequestedOwner}'. Use unique file names per module.",
+                        normalizedFileName,
+                        existingOwner,
+                        modulePluginId
+                    );
+                }
+
+                return;
+            }
+
+            moduleConfigFileOwners[normalizedFileName] = modulePluginId;
+        }
     }
 
     public decimal GetCredits(IPlayer player)
@@ -957,19 +960,39 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
             return new InMemoryShopLedgerStore(config.MaxInMemoryEntries);
         }
 
-        if (!string.Equals(config.Persistence.Provider, "sqlite", StringComparison.OrdinalIgnoreCase))
-        {
-            plugin.LogWarning(
-                "Unsupported ledger persistence provider '{Provider}'. Falling back to in-memory ledger.",
-                config.Persistence.Provider
-            );
-            return new InMemoryShopLedgerStore(config.MaxInMemoryEntries);
-        }
-
         try
         {
-            var connectionString = ResolveSqliteConnectionString(config.Persistence.ConnectionString, pluginDataDirectory);
-            return new FreeSqlShopLedgerStore(connectionString, config.Persistence.AutoSyncStructure);
+            var connectionName = string.IsNullOrWhiteSpace(config.Persistence.ConnectionName)
+                ? "default"
+                : config.Persistence.ConnectionName.Trim();
+            var databaseInfo = TryGetDatabaseConnectionInfo(connectionName);
+
+            if (!TryResolvePersistenceProvider(config.Persistence.Provider, databaseInfo, out var dataType, out var providerName))
+            {
+                plugin.LogWarning(
+                    "Unsupported ledger persistence provider '{Provider}'. Falling back to in-memory ledger.",
+                    config.Persistence.Provider
+                );
+                return new InMemoryShopLedgerStore(config.MaxInMemoryEntries);
+            }
+
+            var connectionString = ResolvePersistenceConnectionString(
+                dataType,
+                config.Persistence.ConnectionString,
+                pluginDataDirectory,
+                databaseInfo
+            );
+
+            if (string.IsNullOrWhiteSpace(connectionString))
+            {
+                plugin.LogWarning(
+                    "Unable to resolve {Provider} connection string for ledger persistence. Falling back to in-memory ledger.",
+                    providerName
+                );
+                return new InMemoryShopLedgerStore(config.MaxInMemoryEntries);
+            }
+
+            return new FreeSqlShopLedgerStore(dataType, connectionString, config.Persistence.AutoSyncStructure);
         }
         catch (Exception ex)
         {
@@ -981,22 +1004,119 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
         }
     }
 
-    private static string ResolveSqliteConnectionString(string configuredValue, string pluginDataDirectory)
+    private DatabaseConnectionInfo? TryGetDatabaseConnectionInfo(string connectionName)
     {
-        if (string.IsNullOrWhiteSpace(configuredValue))
+        return plugin.TryGetDatabaseConnectionInfo(connectionName);
+    }
+
+    private static bool TryResolvePersistenceProvider(
+        string configuredProvider,
+        DatabaseConnectionInfo? databaseInfo,
+        out DataType dataType,
+        out string providerName)
+    {
+        var provider = configuredProvider?.Trim().ToLowerInvariant() ?? string.Empty;
+        if (provider is "sqlite" or "sqlite3")
         {
-            var defaultPath = Path.Combine(pluginDataDirectory, "shopcore_ledger.sqlite3");
-            return $"Data Source={defaultPath}";
+            dataType = DataType.Sqlite;
+            providerName = "sqlite";
+            return true;
         }
 
-        var value = configuredValue.Trim();
-        if (!value.Contains('='))
+        if (provider is "mysql" or "mariadb")
+        {
+            dataType = DataType.MySql;
+            providerName = "mysql";
+            return true;
+        }
+
+        if (provider is "" or "auto")
+        {
+            if (databaseInfo.HasValue && TryMapDriverToDataType(databaseInfo.Value.Driver, out dataType, out providerName))
+            {
+                return true;
+            }
+
+            dataType = DataType.Sqlite;
+            providerName = "sqlite";
+            return true;
+        }
+
+        dataType = default;
+        providerName = string.Empty;
+        return false;
+    }
+
+    private static string ResolvePersistenceConnectionString(
+        DataType dataType,
+        string configuredValue,
+        string pluginDataDirectory,
+        DatabaseConnectionInfo? databaseInfo)
+    {
+        if (!string.IsNullOrWhiteSpace(configuredValue))
+        {
+            return ResolveConfiguredConnectionString(dataType, configuredValue, pluginDataDirectory);
+        }
+
+        if (databaseInfo.HasValue && TryMapDriverToDataType(databaseInfo.Value.Driver, out var driverDataType, out _))
+        {
+            if (driverDataType == dataType)
+            {
+                return databaseInfo.Value.ToString();
+            }
+        }
+
+        return dataType switch
+        {
+            DataType.Sqlite => $"Data Source={Path.Combine(pluginDataDirectory, "shopcore_ledger.sqlite3")}",
+            _ => string.Empty
+        };
+    }
+
+    private static string ResolveConfiguredConnectionString(DataType dataType, string configuredValue, string pluginDataDirectory)
+    {
+        var value = ExpandPathTokens(configuredValue.Trim(), pluginDataDirectory);
+
+        if (dataType != DataType.Sqlite)
+        {
+            return value;
+        }
+
+        if (!value.Contains('=') && !value.Contains("://", StringComparison.Ordinal))
         {
             var path = Path.IsPathRooted(value) ? value : Path.Combine(pluginDataDirectory, value);
             return $"Data Source={path}";
         }
 
         return value;
+    }
+
+    private static string ExpandPathTokens(string value, string pluginDataDirectory)
+    {
+        return value
+            .Replace("${PluginDataDirectory}", pluginDataDirectory, StringComparison.OrdinalIgnoreCase)
+            .Replace("$(PluginDataDirectory)", pluginDataDirectory, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryMapDriverToDataType(string? driver, out DataType dataType, out string providerName)
+    {
+        var normalizedDriver = driver?.Trim().ToLowerInvariant();
+        switch (normalizedDriver)
+        {
+            case "sqlite":
+                dataType = DataType.Sqlite;
+                providerName = "sqlite";
+                return true;
+            case "mysql":
+            case "mariadb":
+                dataType = DataType.MySql;
+                providerName = "mysql";
+                return true;
+            default:
+                dataType = default;
+                providerName = string.Empty;
+                return false;
+        }
     }
 
     private void EnsureApis()
@@ -1207,3 +1327,5 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
         }
     }
 }
+
+

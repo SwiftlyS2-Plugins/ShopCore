@@ -20,7 +20,7 @@ public class Shop_HitSounds : BasePlugin
 {
     private const string ShopCoreInterfaceKey = "ShopCore.API.v1";
     private const string ModulePluginId = "Shop_HitSounds";
-    private const string TemplateFileName = "items_config.jsonc";
+    private const string TemplateFileName = "hitsounds_config.jsonc";
     private const string TemplateSectionName = "Main";
     private const string DefaultCategory = "Sounds/Hit Sounds";
 
@@ -110,7 +110,7 @@ public class Shop_HitSounds : BasePlugin
 
         UnregisterItemsAndHandlers();
 
-        var moduleConfig = shopApi.LoadModuleTemplateConfig<HitSoundsModuleConfig>(
+        var moduleConfig = shopApi.LoadModuleConfig<HitSoundsModuleConfig>(
             ModulePluginId,
             TemplateFileName,
             TemplateSectionName
@@ -125,7 +125,7 @@ public class Shop_HitSounds : BasePlugin
         {
             moduleConfig = CreateDefaultConfig();
             category = moduleConfig.Settings.Category;
-            _ = shopApi.SaveModuleTemplateConfig(
+            _ = shopApi.SaveModuleConfig(
                 ModulePluginId,
                 moduleConfig,
                 TemplateFileName,
@@ -544,3 +544,4 @@ internal sealed class HitSoundItemTemplate
     public bool CanBeSold { get; set; } = true;
     public string RequiredPermission { get; set; } = string.Empty;
 }
+

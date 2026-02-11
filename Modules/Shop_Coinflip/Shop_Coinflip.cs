@@ -18,7 +18,7 @@ public class Shop_Coinflip : BasePlugin
 {
     private const string ShopCoreInterfaceKey = "ShopCore.API.v1";
     private const string ModulePluginId = "Shop_Coinflip";
-    private const string TemplateFileName = "config.jsonc";
+    private const string TemplateFileName = "coinflip_config.jsonc";
     private const string TemplateSectionName = "Main";
     private const string FallbackShopPrefix = "[gold]★[red] [Store][default]";
 
@@ -80,7 +80,7 @@ public class Shop_Coinflip : BasePlugin
             return;
         }
 
-        settings = shopApi.LoadModuleTemplateConfig<CoinflipModuleConfig>(
+        settings = shopApi.LoadModuleConfig<CoinflipModuleConfig>(
             ModulePluginId,
             TemplateFileName,
             TemplateSectionName
@@ -90,7 +90,7 @@ public class Shop_Coinflip : BasePlugin
         if (!settings.Commands.Any())
         {
             settings = CreateDefaultConfig();
-            _ = shopApi.SaveModuleTemplateConfig(
+            _ = shopApi.SaveModuleConfig(
                 ModulePluginId,
                 settings,
                 TemplateFileName,
@@ -326,3 +326,4 @@ internal sealed class CoinflipModuleConfig
     public double WinChance { get; set; } = 0.5;
     public float WinMultiplier { get; set; } = 2.0f;
 }
+

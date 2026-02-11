@@ -8,13 +8,15 @@ internal sealed class FreeSqlShopLedgerStore : IShopLedgerStore
 {
     private readonly IFreeSql orm;
     private readonly object sync = new();
+    private readonly string mode;
 
-    public FreeSqlShopLedgerStore(string connectionString, bool autoSyncStructure)
+    public FreeSqlShopLedgerStore(DataType dataType, string connectionString, bool autoSyncStructure)
     {
         orm = new FreeSqlBuilder()
-            .UseConnectionString(DataType.Sqlite, connectionString)
+            .UseConnectionString(dataType, connectionString)
             .UseAutoSyncStructure(autoSyncStructure)
             .Build();
+        mode = $"FreeSql({dataType})";
 
         if (autoSyncStructure)
         {
@@ -22,7 +24,7 @@ internal sealed class FreeSqlShopLedgerStore : IShopLedgerStore
         }
     }
 
-    public string Mode => "FreeSql(Sqlite)";
+    public string Mode => mode;
 
     public void Record(ShopLedgerEntry entry)
     {

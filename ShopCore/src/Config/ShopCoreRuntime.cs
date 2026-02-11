@@ -132,6 +132,15 @@ public partial class ShopCore
         {
             Settings.Ledger.Persistence.Provider = Settings.Ledger.Persistence.Provider.Trim().ToLowerInvariant();
         }
+
+        if (string.IsNullOrWhiteSpace(Settings.Ledger.Persistence.ConnectionName))
+        {
+            Settings.Ledger.Persistence.ConnectionName = "default";
+        }
+        else
+        {
+            Settings.Ledger.Persistence.ConnectionName = Settings.Ledger.Persistence.ConnectionName.Trim();
+        }
     }
 
     private static List<string> NormalizeCommandList(List<string>? values, IEnumerable<string> fallback)
@@ -528,85 +537,34 @@ public partial class ShopCore
         }
     }
 
-    private int EnsureCentralModuleTemplates()
+    private int CountCentralModuleConfigs()
     {
         try
         {
-            var shopCorePath = GetPluginPath("ShopCore");
-            if (string.IsNullOrWhiteSpace(shopCorePath))
-            {
-                return 0;
-            }
-
-            var centralModulesRoot = Path.Combine(shopCorePath, "resources", "templates", "modules");
+            var centralModulesRoot = GetCentralModuleConfigsDirectoryPath();
             Directory.CreateDirectory(centralModulesRoot);
-
-            var copiedFiles = 0;
-            var pluginPaths = Core.PluginManager.GetPluginPaths();
-            var knownModules = new HashSet<string>(shopApi.GetKnownModulePluginIds(), StringComparer.OrdinalIgnoreCase);
-            foreach (var moduleId in knownModules)
-            {
-                if (string.Equals(moduleId, "ShopCore", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                if (!pluginPaths.TryGetValue(moduleId, out var pluginPath))
-                {
-                    continue;
-                }
-
-                var sourceTemplatesRoot = Path.Combine(pluginPath, "resources", "templates");
-                if (!Directory.Exists(sourceTemplatesRoot))
-                {
-                    continue;
-                }
-
-                var templateFiles = Directory.GetFiles(sourceTemplatesRoot, "*.jsonc", SearchOption.AllDirectories);
-                if (templateFiles.Length == 0)
-                {
-                    continue;
-                }
-
-                foreach (var templateFile in templateFiles)
-                {
-                    var relativePath = Path.GetRelativePath(sourceTemplatesRoot, templateFile);
-                    var destinationPath = Path.Combine(centralModulesRoot, moduleId, relativePath);
-                    if (File.Exists(destinationPath))
-                    {
-                        continue;
-                    }
-
-                    var destinationDirectory = Path.GetDirectoryName(destinationPath);
-                    if (!string.IsNullOrWhiteSpace(destinationDirectory))
-                    {
-                        Directory.CreateDirectory(destinationDirectory);
-                    }
-
-                    File.Copy(templateFile, destinationPath, overwrite: false);
-                    copiedFiles++;
-                }
-            }
-
-            return copiedFiles;
+            return Directory.GetFiles(centralModulesRoot, "*.*", SearchOption.TopDirectoryOnly)
+                .Count(static file =>
+                    file.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ||
+                    file.EndsWith(".jsonc", StringComparison.OrdinalIgnoreCase));
         }
         catch (Exception ex)
         {
-            Core.Logger.LogWarning(ex, "Failed while syncing module templates to ShopCore resources/templates/modules.");
+            Core.Logger.LogWarning(ex, "Failed while preparing configs/plugins/ShopCore/modules.");
             return 0;
         }
     }
 
-    private bool ReloadModuleConfigurations(out int copiedTemplates, out int reloadedModules, out int failedModules, out string? error)
+    private bool ReloadModuleConfigurations(out int configFileCount, out int reloadedModules, out int failedModules, out string? error)
     {
-        copiedTemplates = 0;
+        configFileCount = 0;
         reloadedModules = 0;
         failedModules = 0;
         error = null;
 
         try
         {
-            copiedTemplates = EnsureCentralModuleTemplates();
+            configFileCount = CountCentralModuleConfigs();
 
             var loadedPlugins = new HashSet<string>(Core.PluginManager.GetAllPlugins(), StringComparer.OrdinalIgnoreCase);
             var knownModules = shopApi.GetKnownModulePluginIds();
@@ -639,3 +597,4 @@ public partial class ShopCore
         }
     }
 }
+

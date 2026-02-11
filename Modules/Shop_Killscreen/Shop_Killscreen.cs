@@ -21,7 +21,7 @@ public class Shop_Killscreen : BasePlugin
 {
     private const string ShopCoreInterfaceKey = "ShopCore.API.v1";
     private const string ModulePluginId = "Shop_Killscreen";
-    private const string TemplateFileName = "items_config.jsonc";
+    private const string TemplateFileName = "killscreen_config.jsonc";
     private const string TemplateSectionName = "Main";
     private const string DefaultCategory = "Visuals/Kill Screens";
 
@@ -109,7 +109,7 @@ public class Shop_Killscreen : BasePlugin
 
         UnregisterItemsAndHandlers();
 
-        var moduleConfig = shopApi.LoadModuleTemplateConfig<KillscreenModuleConfig>(
+        var moduleConfig = shopApi.LoadModuleConfig<KillscreenModuleConfig>(
             ModulePluginId,
             TemplateFileName,
             TemplateSectionName
@@ -124,7 +124,7 @@ public class Shop_Killscreen : BasePlugin
         {
             moduleConfig = CreateDefaultConfig();
             category = moduleConfig.Settings.Category;
-            _ = shopApi.SaveModuleTemplateConfig(
+            _ = shopApi.SaveModuleConfig(
                 ModulePluginId,
                 moduleConfig,
                 TemplateFileName,
@@ -386,3 +386,4 @@ internal sealed class KillscreenItemTemplate
     public bool Enabled { get; set; } = true;
     public bool CanBeSold { get; set; } = true;
 }
+

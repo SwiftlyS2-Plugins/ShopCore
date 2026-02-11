@@ -98,9 +98,46 @@ jobs:
         shell: bash
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          ARCHIVE_NAME="ShopCore v${VERSION}.zip"
-          zip -r "${ARCHIVE_NAME}" build
-          echo "archive=${ARCHIVE_NAME}" >> "$GITHUB_OUTPUT"
+          CORE_ARCHIVE="ShopCore v${VERSION}.zip"
+          MODULES_ARCHIVE="Modules.zip"
+
+          rm -rf release_bundle
+          mkdir -p release_bundle/core
+          mkdir -p release_bundle/modules/Modules
+
+          if [[ ! -d "build/plugins/ShopCore" ]]; then
+            echo "Missing build/plugins/ShopCore in build output."
+            exit 1
+          fi
+
+          cp -R "build/plugins/ShopCore" "release_bundle/core/ShopCore"
+
+          if [[ -d "build/plugins" ]]; then
+            shopt -s nullglob
+            for PLUGIN_DIR in build/plugins/*; do
+              NAME="$(basename "${PLUGIN_DIR}")"
+              if [[ "${NAME}" == "ShopCore" ]]; then
+                continue
+              fi
+
+              if [[ -d "${PLUGIN_DIR}" ]]; then
+                cp -R "${PLUGIN_DIR}" "release_bundle/modules/Modules/${NAME}"
+              fi
+            done
+          fi
+
+          (
+            cd release_bundle/core
+            zip -r "../../${CORE_ARCHIVE}" ShopCore
+          )
+
+          (
+            cd release_bundle/modules
+            zip -r "../../${MODULES_ARCHIVE}" Modules
+          )
+
+          echo "core_archive=${CORE_ARCHIVE}" >> "$GITHUB_OUTPUT"
+          echo "modules_archive=${MODULES_ARCHIVE}" >> "$GITHUB_OUTPUT"
 
       - name: Generate Release Notes
         id: notes
@@ -138,4 +175,6 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           name: ShopCore v${{ steps.version.outputs.version }}
           body_path: release_notes.md
-          files: ${{ steps.archive.outputs.archive }}
+          files: |
+            ${{ steps.archive.outputs.core_archive }}
+            ${{ steps.archive.outputs.modules_archive }}

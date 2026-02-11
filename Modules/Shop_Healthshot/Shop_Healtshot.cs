@@ -21,7 +21,7 @@ public class Shop_Healtshot : BasePlugin
 {
     private const string ShopCoreInterfaceKey = "ShopCore.API.v1";
     private const string ModulePluginId = "Shop_Healthshot";
-    private const string TemplateFileName = "items_config.jsonc";
+    private const string TemplateFileName = "healthshot_config.jsonc";
     private const string TemplateSectionName = "Main";
     private const string DefaultCategory = "Healings";
     private const string DefaultWeaponDesignerName = "weapon_healthshot";
@@ -103,7 +103,7 @@ public class Shop_Healtshot : BasePlugin
 
         UnregisterItemsAndHandlers();
 
-        var moduleConfig = shopApi.LoadModuleTemplateConfig<HealthshotModuleConfig>(
+        var moduleConfig = shopApi.LoadModuleConfig<HealthshotModuleConfig>(
             ModulePluginId,
             TemplateFileName,
             TemplateSectionName
@@ -122,7 +122,7 @@ public class Shop_Healtshot : BasePlugin
             moduleConfig = CreateDefaultConfig();
             category = moduleConfig.Settings.Category;
             healthshotDesignerName = moduleConfig.Settings.WeaponDesignerName;
-            _ = shopApi.SaveModuleTemplateConfig(
+            _ = shopApi.SaveModuleConfig(
                 ModulePluginId,
                 moduleConfig,
                 TemplateFileName,
@@ -444,3 +444,4 @@ internal sealed class HealthshotItemTemplate
     public bool CanBeSold { get; set; } = true;
     public string GrantMode { get; set; } = nameof(HealthshotGrantMode.OnPurchase);
 }
+

@@ -91,6 +91,7 @@ public sealed class LedgerPersistenceConfig
 {
     public bool Enabled { get; set; } = false;
     public string Provider { get; set; } = "sqlite";
+    public string ConnectionName { get; set; } = "default";
     public string ConnectionString { get; set; } = string.Empty;
     public bool AutoSyncStructure { get; set; } = true;
 }

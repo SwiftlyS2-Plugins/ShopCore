@@ -19,7 +19,7 @@ public class Shop_Bhop : BasePlugin
 {
     private const string ShopCoreInterfaceKey = "ShopCore.API.v1";
     private const string ModulePluginId = "Shop_Bhop";
-    private const string TemplateFileName = "items_config.jsonc";
+    private const string TemplateFileName = "bhop_config.jsonc";
     private const string TemplateSectionName = "Main";
     private const string DefaultCategory = "Movement/Bhop";
 
@@ -115,7 +115,7 @@ public class Shop_Bhop : BasePlugin
 
         UnregisterItemsAndHandlers();
 
-        var moduleConfig = shopApi.LoadModuleTemplateConfig<BhopModuleConfig>(
+        var moduleConfig = shopApi.LoadModuleConfig<BhopModuleConfig>(
             ModulePluginId,
             TemplateFileName,
             TemplateSectionName
@@ -130,7 +130,7 @@ public class Shop_Bhop : BasePlugin
         {
             moduleConfig = CreateDefaultConfig();
             category = moduleConfig.Settings.Category;
-            _ = shopApi.SaveModuleTemplateConfig(
+            _ = shopApi.SaveModuleConfig(
                 ModulePluginId,
                 moduleConfig,
                 TemplateFileName,
@@ -755,3 +755,4 @@ internal sealed class BhopItemTemplate
     public bool CanBeSold { get; set; } = true;
     public string RequiredPermission { get; set; } = string.Empty;
 }
+

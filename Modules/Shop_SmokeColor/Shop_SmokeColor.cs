@@ -20,7 +20,7 @@ public class Shop_SmokeColor : BasePlugin
 {
     private const string ShopCoreInterfaceKey = "ShopCore.API.v1";
     private const string ModulePluginId = "Shop_SmokeColor";
-    private const string TemplateFileName = "items_config.jsonc";
+    private const string TemplateFileName = "smokecolor_config.jsonc";
     private const string TemplateSectionName = "Main";
     private const string DefaultCategory = "Visuals/Smoke Colors";
 
@@ -175,7 +175,7 @@ public class Shop_SmokeColor : BasePlugin
 
         UnregisterItemsAndHandlers();
 
-        var moduleConfig = shopApi.LoadModuleTemplateConfig<SmokeColorModuleConfig>(
+        var moduleConfig = shopApi.LoadModuleConfig<SmokeColorModuleConfig>(
             ModulePluginId,
             TemplateFileName,
             TemplateSectionName
@@ -190,7 +190,7 @@ public class Shop_SmokeColor : BasePlugin
         {
             moduleConfig = CreateDefaultConfig();
             category = moduleConfig.Settings.Category;
-            _ = shopApi.SaveModuleTemplateConfig(
+            _ = shopApi.SaveModuleConfig(
                 ModulePluginId,
                 moduleConfig,
                 TemplateFileName,
@@ -587,3 +587,4 @@ internal sealed class SmokeColorItemTemplate
     public string ColorName { get; set; } = "Red";
     public List<int> Color { get; set; } = [];
 }
+

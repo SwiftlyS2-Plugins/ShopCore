@@ -22,7 +22,7 @@ public class Shop_Tracers : BasePlugin
 {
     private const string ShopCoreInterfaceKey = "ShopCore.API.v1";
     private const string ModulePluginId = "Shop_Tracers";
-    private const string TemplateFileName = "items_config.jsonc";
+    private const string TemplateFileName = "tracers_config.jsonc";
     private const string TemplateSectionName = "Main";
     private const string DefaultCategory = "Visuals/Tracers";
 
@@ -129,7 +129,7 @@ public class Shop_Tracers : BasePlugin
 
         UnregisterItemsAndHandlers();
 
-        var moduleConfig = shopApi.LoadModuleTemplateConfig<TracersModuleConfig>(
+        var moduleConfig = shopApi.LoadModuleConfig<TracersModuleConfig>(
             ModulePluginId,
             TemplateFileName,
             TemplateSectionName
@@ -148,7 +148,7 @@ public class Shop_Tracers : BasePlugin
             category = moduleConfig.Settings.Category;
             runtimeSettings = moduleConfig.Settings;
 
-            _ = shopApi.SaveModuleTemplateConfig(
+            _ = shopApi.SaveModuleConfig(
                 ModulePluginId,
                 moduleConfig,
                 TemplateFileName,
@@ -780,3 +780,4 @@ internal sealed class TracerItemTemplate
     public float? OriginZOffset { get; set; }
     public string RequiredPermission { get; set; } = string.Empty;
 }
+

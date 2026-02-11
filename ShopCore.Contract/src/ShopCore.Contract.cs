@@ -1,4 +1,4 @@
-﻿using SwiftlyS2.Shared.Players;
+using SwiftlyS2.Shared.Players;
 
 namespace ShopCore.Contract;
 
@@ -248,29 +248,29 @@ public interface IShopCoreApiV1
     IReadOnlyCollection<ShopItemDefinition> GetItemsByCategory(string category);
 
     /// <summary>
-    /// Loads a module template config from <c>resources/templates</c> inside the target plugin folder.
+    /// Loads a module config from centralized ShopCore module config storage.
     /// Returns a new instance of <typeparamref name="T"/> when the file/section is missing or invalid.
     /// </summary>
     /// <typeparam name="T">Target config model type.</typeparam>
     /// <param name="modulePluginId">Module plugin id, e.g. <c>Shop_Healthshot</c>.</param>
-    /// <param name="fileName">Template file name inside <c>resources/templates</c>.</param>
+    /// <param name="fileName">Config file name (stored under <c>configs/plugins/ShopCore/modules</c>).</param>
     /// <param name="sectionName">Optional top-level section name. Empty means root object.</param>
-    T LoadModuleTemplateConfig<T>(
+    T LoadModuleConfig<T>(
         string modulePluginId,
         string fileName = "items_config.jsonc",
         string sectionName = "Main") where T : class, new();
 
     /// <summary>
-    /// Saves a module template config into ShopCore centralized templates folder.
+    /// Saves a module config into centralized ShopCore module config storage.
     /// </summary>
     /// <typeparam name="T">Config model type.</typeparam>
     /// <param name="modulePluginId">Module plugin id, e.g. <c>Shop_Healthshot</c>.</param>
     /// <param name="config">Config payload to save.</param>
-    /// <param name="fileName">Template file name inside <c>resources/templates</c>.</param>
+    /// <param name="fileName">Config file name (stored under <c>configs/plugins/ShopCore/modules</c>).</param>
     /// <param name="sectionName">Optional top-level section name. Empty means root object.</param>
     /// <param name="overwrite">If true, replaces existing file.</param>
     /// <returns>True when file is written successfully.</returns>
-    bool SaveModuleTemplateConfig<T>(
+    bool SaveModuleConfig<T>(
         string modulePluginId,
         T config,
         string fileName = "items_config.jsonc",
@@ -332,3 +332,5 @@ public interface IShopCoreApiV1
     /// </summary>
     IReadOnlyCollection<ShopLedgerEntry> GetRecentLedgerEntriesForPlayer(IPlayer player, int maxEntries = 50);
 }
+
+

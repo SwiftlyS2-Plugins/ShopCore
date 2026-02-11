@@ -18,7 +18,7 @@ public class Shop_Flags : BasePlugin
 {
     private const string ShopCoreInterfaceKey = "ShopCore.API.v1";
     private const string ModulePluginId = "Shop_Flags";
-    private const string TemplateFileName = "items_config.jsonc";
+    private const string TemplateFileName = "flags_config.jsonc";
     private const string TemplateSectionName = "Main";
     private const string DefaultCategory = "Permissions/Flags";
 
@@ -93,7 +93,7 @@ public class Shop_Flags : BasePlugin
 
         UnregisterItemsAndHandlers();
 
-        var moduleConfig = shopApi.LoadModuleTemplateConfig<FlagsModuleConfig>(
+        var moduleConfig = shopApi.LoadModuleConfig<FlagsModuleConfig>(
             ModulePluginId,
             TemplateFileName,
             TemplateSectionName
@@ -108,7 +108,7 @@ public class Shop_Flags : BasePlugin
         {
             moduleConfig = CreateDefaultConfig();
             category = moduleConfig.Settings.Category;
-            _ = shopApi.SaveModuleTemplateConfig(
+            _ = shopApi.SaveModuleConfig(
                 ModulePluginId,
                 moduleConfig,
                 TemplateFileName,
@@ -576,7 +576,7 @@ public class Shop_Flags : BasePlugin
                 {
                     Id = "flag_slot_hourly",
                     DisplayNameKey = "module.flags.item.slot.name",
-                    GrantedPermission = "@css/slot",
+                    GrantedPermission = "swiftly.slot",
                     Price = 2500,
                     SellPrice = 1250,
                     DurationSeconds = 3600,
@@ -622,3 +622,4 @@ internal sealed class FlagItemTemplate
     public bool Enabled { get; set; } = true;
     public bool CanBeSold { get; set; } = true;
 }
+

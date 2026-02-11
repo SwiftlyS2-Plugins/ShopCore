@@ -313,8 +313,7 @@ public partial class ShopCore
         var onlinePlayers = Core.PlayerManager.GetAllValidPlayers().Count(static p => !p.IsFakeClient);
 
         var timedIncome = Settings.Credits.TimedIncome;
-        var shopCorePath = GetPluginPath("ShopCore");
-        var templateCount = CountCentralModuleTemplateFiles(shopCorePath);
+        var moduleConfigCount = CountCentralModuleConfigFiles();
         var ledgerMode = shopApi.GetLedgerStoreMode();
 
         ReplyCommand(context, "shop.admin.status.header");
@@ -324,12 +323,12 @@ public partial class ShopCore
         ReplyCommand(context, "shop.admin.status.players", onlinePlayers);
         ReplyCommand(context, "shop.admin.status.timed_income", timedIncome.Enabled, timedIncome.AmountPerInterval, timedIncome.IntervalSeconds);
         ReplyCommand(context, "shop.admin.status.ledger", ledgerMode);
-        ReplyCommand(context, "shop.admin.status.templates", templateCount);
+        ReplyCommand(context, "shop.admin.status.module_configs", moduleConfigCount);
     }
 
     private void HandleAdminReloadModulesConfigCommand(ICommandContext context)
     {
-        if (!ReloadModuleConfigurations(out var copiedTemplates, out var reloadedModules, out var failedModules, out var error))
+        if (!ReloadModuleConfigurations(out var moduleConfigCount, out var reloadedModules, out var failedModules, out var error))
         {
             ReplyCommand(context, "shop.admin.reload_modules_config.failed", error ?? "unknown error");
             return;
@@ -338,25 +337,23 @@ public partial class ShopCore
         ReplyCommand(
             context,
             "shop.admin.reload_modules_config.success",
-            copiedTemplates,
+            moduleConfigCount,
             reloadedModules,
             failedModules
         );
     }
 
-    private static int CountCentralModuleTemplateFiles(string? shopCorePath)
+    private int CountCentralModuleConfigFiles()
     {
-        if (string.IsNullOrWhiteSpace(shopCorePath))
-        {
-            return 0;
-        }
-
-        var root = Path.Combine(shopCorePath, "resources", "templates", "modules");
+        var root = GetCentralModuleConfigsDirectoryPath();
         if (!Directory.Exists(root))
         {
             return 0;
         }
 
-        return Directory.GetFiles(root, "*.jsonc", SearchOption.AllDirectories).Length;
+        return Directory.GetFiles(root, "*.*", SearchOption.TopDirectoryOnly)
+            .Count(static file =>
+                file.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ||
+                file.EndsWith(".jsonc", StringComparison.OrdinalIgnoreCase));
     }
 }

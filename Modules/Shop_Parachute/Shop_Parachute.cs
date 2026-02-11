@@ -23,7 +23,7 @@ public class Shop_Parachute : BasePlugin
 {
     private const string ShopCoreInterfaceKey = "ShopCore.API.v1";
     private const string ModulePluginId = "Shop_Parachute";
-    private const string TemplateFileName = "items_config.jsonc";
+    private const string TemplateFileName = "parachute_config.jsonc";
     private const string TemplateSectionName = "Main";
     private const string DefaultCategory = "Movement/Parachute";
     private const int MaxPlayers = 65;
@@ -234,7 +234,7 @@ public class Shop_Parachute : BasePlugin
 
         UnregisterItemsAndHandlers();
 
-        var moduleConfig = shopApi.LoadModuleTemplateConfig<ParachuteModuleConfig>(
+        var moduleConfig = shopApi.LoadModuleConfig<ParachuteModuleConfig>(
             ModulePluginId,
             TemplateFileName,
             TemplateSectionName
@@ -249,7 +249,7 @@ public class Shop_Parachute : BasePlugin
         {
             moduleConfig = CreateDefaultConfig();
             category = moduleConfig.Settings.Category;
-            _ = shopApi.SaveModuleTemplateConfig(
+            _ = shopApi.SaveModuleConfig(
                 ModulePluginId,
                 moduleConfig,
                 TemplateFileName,
@@ -919,3 +919,4 @@ internal sealed class ParachuteItemTemplate
     public bool? DisableWhenCarryingHostage { get; set; }
     public string RequiredPermission { get; set; } = string.Empty;
 }
+

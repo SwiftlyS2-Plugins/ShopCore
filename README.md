@@ -153,8 +153,9 @@ ShopCore reads config from the `Main` section.
 | Setting             | Default  | Description                                                                          |
 | :------------------ | :------- | :----------------------------------------------------------------------------------- |
 | `Enabled`           | `false`  | Enables persistent ledger backend via FreeSql.                                       |
-| `Provider`          | `sqlite` | Persistence provider (`sqlite` currently supported).                                 |
-| `ConnectionString`  | `""`     | FreeSql connection string. Empty = `${PluginDataDirectory}/shopcore_ledger.sqlite3`. |
+| `Provider`          | `sqlite` | Persistence provider (`sqlite`, `mysql`, or `auto`).                                |
+| `ConnectionName`    | `default`| Swiftly database connection name used when `ConnectionString` is empty.              |
+| `ConnectionString`  | `""`     | FreeSql connection string. Supports `${PluginDataDirectory}` token for sqlite paths. |
 | `AutoSyncStructure` | `true`   | Auto-creates/updates the ledger table structure.                                     |
 
 ### Example
@@ -216,6 +217,7 @@ ShopCore reads config from the `Main` section.
       "Persistence": {
         "Enabled": false,
         "Provider": "sqlite",
+        "ConnectionName": "default",
         "ConnectionString": "",
         "AutoSyncStructure": true,
       },
@@ -226,29 +228,26 @@ ShopCore reads config from the `Main` section.
 
 ## Module Config System
 
-ShopCore supports module-owned item config templates, but keeps runtime module configs centralized under ShopCore.
+ShopCore keeps module runtime configs centralized in Swiftly configs.
 
 ### How It Works
 
-When a module calls `IShopCoreApiV1.LoadModuleTemplateConfig<T>(moduleId, fileName, sectionName)`:
+When a module calls `IShopCoreApiV1.LoadModuleConfig<T>(moduleId, fileName, sectionName)`:
 
-1. ShopCore looks for the module template source in:
-   `<ModulePlugin>/resources/templates/<fileName>`
-2. ShopCore resolves the centralized template target in:
-   `ShopCore/resources/templates/modules/<ModuleId>/<fileName>`
-3. If the centralized file does not exist and module source exists, ShopCore copies source to centralized target once.
-4. ShopCore always reads/deserializes from the centralized file.
+1. ShopCore resolves the centralized config target in:
+   `game/csgo/addons/swiftlys2/configs/plugins/ShopCore/modules/<fileName>`
+2. If the file does not exist, ShopCore creates it automatically.
+3. ShopCore reads/deserializes from that centralized file.
 
-This means each module can ship defaults, while server owners manage all module configs from one location.
+This lets module authors define a config class in code and server owners edit one centralized config location.
 
 ### Behavior Notes
 
-- Centralized file has priority after first creation.
-- Copy happens only when centralized file is missing.
-- If module config loads empty items, module defaults can be written back to centralized config through `SaveModuleTemplateConfig`.
+- Use `SaveModuleConfig` if you want to write defaults explicitly.
 - JSONC is supported (comments + trailing commas).
 - `sectionName` (usually `Main`) is optional; if not found, root object is used.
 - Invalid relative paths (absolute paths / `..`) are rejected for safety.
+- Keep module config file names unique (for example `healthshot_config.jsonc`, `smokecolor_config.jsonc`) since all centralized files share the same `modules/` folder.
 
 ## Category and Subcategory System
 
@@ -266,16 +265,12 @@ This is fully backward compatible with existing one-level categories.
 
 ### Recommended Layout
 
-- Ship default template in module plugin:
-  `Modules/<ModuleName>/resources/templates/items_config.jsonc`
-- Keep editable centralized file in ShopCore:
-  `ShopCore/resources/templates/modules/<ModuleId>/items_config.jsonc`
+- Keep editable centralized files in Swiftly configs:
+  `game/csgo/addons/swiftlys2/configs/plugins/ShopCore/modules/items_config.jsonc`
 
 ### Example (Healthshot Module)
 
-Centralized template currently used by the sample module:
-
-- `ShopCore/resources/templates/modules/Shop_Healthshot/items_config.jsonc`
+- `game/csgo/addons/swiftlys2/configs/plugins/ShopCore/modules/items_config.jsonc`
 
 ## Shop Contract Summary (`ShopCore.Contract`)
 
@@ -300,7 +295,7 @@ Use positive whole-number credit amounts for item prices and credit operations.
 Main capabilities exposed to other plugins:
 
 - Register/unregister/query items.
-- Load typed module template configs through ShopCore central template path.
+- Load typed module configs through ShopCore centralized config path.
 - Read/add/subtract/check player credits.
 - Purchase and sell items with detailed `ShopTransactionResult`.
 - Enable/disable item per player.
@@ -348,7 +343,7 @@ public class MyModule : BasePlugin
 
     public override void Load(bool hotReload)
     {
-        var config = shop.LoadModuleTemplateConfig<MyModuleConfig>(
+        var config = shop.LoadModuleConfig<MyModuleConfig>(
             "MyModule",
             "items_config.jsonc",
             "Main"
@@ -405,7 +400,7 @@ Default translations are in:
    - `ShopCore.dll`
    - `resources/exports/ShopCore.Contract.dll`
    - `resources/translations/en.jsonc`
-   - `resources/templates/modules/...` (if using centralized module configs)
+   - `.../addons/swiftlys2/configs/plugins/ShopCore/modules/...` (for centralized module configs)
 4. Ensure Economy and Cookies plugins are also installed and loaded.
 5. Start/restart the server.
 

@@ -23,7 +23,7 @@ public class Shop_PlayerColor : BasePlugin
 {
     private const string ShopCoreInterfaceKey = "ShopCore.API.v1";
     private const string ModulePluginId = "Shop_PlayerColor";
-    private const string TemplateFileName = "items_config.jsonc";
+    private const string TemplateFileName = "playercolor_config.jsonc";
     private const string TemplateSectionName = "Main";
     private const string DefaultCategory = "Visuals/Player Colors";
 
@@ -187,7 +187,7 @@ public class Shop_PlayerColor : BasePlugin
 
         UnregisterItemsAndHandlers();
 
-        var moduleConfig = shopApi.LoadModuleTemplateConfig<PlayerColorModuleConfig>(
+        var moduleConfig = shopApi.LoadModuleConfig<PlayerColorModuleConfig>(
             ModulePluginId,
             TemplateFileName,
             TemplateSectionName
@@ -202,7 +202,7 @@ public class Shop_PlayerColor : BasePlugin
         {
             moduleConfig = CreateDefaultConfig();
             category = moduleConfig.Settings.Category;
-            _ = shopApi.SaveModuleTemplateConfig(
+            _ = shopApi.SaveModuleConfig(
                 ModulePluginId,
                 moduleConfig,
                 TemplateFileName,
@@ -792,3 +792,4 @@ internal sealed class PlayerColorItemTemplate
     public float? RainbowUpdateIntervalSeconds { get; set; }
     public string RequiredPermission { get; set; } = string.Empty;
 }
+
