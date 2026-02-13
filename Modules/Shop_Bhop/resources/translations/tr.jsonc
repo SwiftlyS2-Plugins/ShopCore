@@ -1,0 +1,6 @@
+{
+  "shop.prefix": "[gold]★[red] [Store][default]",
+  "module.bhop.item.fullspeed.name": "Bhop (Tam Hız) ({0})",
+  "module.bhop.item.limited350.name": "Bhop (Maks 350) ({0})",
+  "module.bhop.error.permission": "[lightred]{0}[default] satın almak için [lightred]{1}[default] yetkisine ihtiyacın var."
+}

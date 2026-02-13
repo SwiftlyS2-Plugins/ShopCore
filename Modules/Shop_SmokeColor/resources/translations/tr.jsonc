@@ -1,0 +1,5 @@
+{
+    "shop.prefix": "[gold]★[red] [Store][default]",
+    "module.smoke_color.item.permanent.name": "{0} Duman (Kalıcı)",
+    "module.smoke_color.item.temporary.name": "{0} Duman ({1})"
+}

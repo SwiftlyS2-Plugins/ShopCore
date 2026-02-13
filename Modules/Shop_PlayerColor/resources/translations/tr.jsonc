@@ -1,0 +1,9 @@
+{
+  "shop.prefix": "[gold]★[red] [Store][default]",
+
+  "module.player_color.item.color.name": "{0} Oyuncu Rengi ({1})",
+  "module.player_color.item.rainbow.name": "Gökkuşağı Oyuncu Rengi ({0})",
+  "module.player_color.item.permanent.name": "{0} Oyuncu Rengi (Kalıcı)",
+
+  "module.player_color.error.permission": "[lightred]{0}[default] satın almak için [lightred]{1}[default] yetkisine ihtiyacınız var."
+}

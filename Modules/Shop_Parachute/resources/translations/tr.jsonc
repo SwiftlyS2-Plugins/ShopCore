@@ -1,0 +1,7 @@
+{
+    "shop.prefix": "[gold]★[red] [Store][default]",
+    "module.parachute.item.basic.name": "Temel Paraşüt ({0})",
+    "module.parachute.item.premium.name": "Premium Paraşüt ({0})",
+    "module.parachute.item.permanent.name": "Kalıcı Paraşüt",
+    "module.parachute.error.permission": "{0} satın almak için [{1}] gerekir."
+}

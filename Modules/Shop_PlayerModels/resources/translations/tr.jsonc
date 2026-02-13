@@ -1,0 +1,8 @@
+{
+  "shop.prefix": "[gold]★[red] [Store][default]",
+
+  "module.player_models.item.temporary.name": "{0} ({1})",
+  "module.player_models.item.permanent.name": "{0} (Kalıcı)",
+
+  "module.player_models.error.permission": "[lightred]{0}[default] satın almak için [lightred]{1}[default] yetkisine ihtiyacınız var."
+}

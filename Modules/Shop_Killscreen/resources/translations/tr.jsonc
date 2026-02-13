@@ -1,0 +1,5 @@
+{
+    "shop.prefix": "[gold]★[red] [Store][default]",
+    "module.killscreen.item.permanent.name": "Öldürme Ekranı (Kalıcı)",
+    "module.killscreen.item.temporary.name": "Öldürme Ekranı ({0})"
+}

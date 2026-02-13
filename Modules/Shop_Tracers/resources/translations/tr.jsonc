@@ -1,0 +1,8 @@
+{
+  "shop.prefix": "[gold]★[red] [Store][default]",
+
+  "module.tracers.item.temporary.name": "{0} Mermi İzi ({1})",
+  "module.tracers.item.permanent.name": "{0} Mermi İzi (Kalıcı)",
+
+  "module.tracers.error.permission": "[lightred]{0}[default] satın almak için [lightred]{1}[default] yetkisine ihtiyacınız var."
+}

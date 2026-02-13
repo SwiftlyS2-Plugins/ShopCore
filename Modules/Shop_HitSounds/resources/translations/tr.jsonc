@@ -1,0 +1,6 @@
+{
+    "shop.prefix": "[gold]★[red] [Store][default]",
+    "module.hitsounds.item.bell.name": "Zil Vuruş Sesi ({0})",
+    "module.hitsounds.item.crate.name": "Kasa Vuruş Sesi ({0})",
+    "module.hitsounds.error.permission": "{0} satın almak için [{1}] gerekir."
+}

@@ -1,0 +1,13 @@
+{
+    "shop.prefix": "[gold]★[red] [Store][default]",
+    "module.coinflip.disabled": "Coinflip şu anda [lightred]devre dışı[default].",
+    "module.coinflip.usage": "Kullanım: [lightyellow]!{0} <miktar>[default]",
+    "module.coinflip.invalid_bet": "Geçersiz bahis. İzin verilen aralık: [lightyellow]{0}[default]-[lightyellow]{1}[default].",
+    "module.coinflip.min_bet": "Minimum bahis [lightyellow]{0}[default] kredidir.",
+    "module.coinflip.max_bet": "Maksimum bahis [lightyellow]{0}[default] kredidir.",
+    "module.coinflip.cooldown": "Tekrar bahis için [lightyellow]{0}[default] saniye bekleyin.",
+    "module.coinflip.no_credits": "[lightyellow]{0}[default] bahis yapmak için yeterli krediniz yok.",
+    "module.coinflip.internal_error": "Coinflip dahili bir hatadan dolayı başarısız oldu. Tekrar deneyin.",
+    "module.coinflip.won": "[lime]+{0}[default] kredi kazandınız. Yeni bakiye: [lime]{1}[default].",
+    "module.coinflip.lost": "[lightred]{0}[default] kredi kaybettiniz. Yeni bakiye: [lightyellow]{1}[default]."
+}

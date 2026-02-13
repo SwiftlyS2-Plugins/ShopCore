@@ -1,0 +1,5 @@
+{
+    "shop.prefix": "[gold]★[red] [Store][default]",
+    "module.flags.item.slot.name": "Eşya Slotu Bayrağı ({0})",
+    "module.flags.error.permission": "{0} satın almak için [{1}] gerekir."
+}

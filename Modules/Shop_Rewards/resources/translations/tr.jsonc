@@ -1,0 +1,9 @@
+{
+    "shop.prefix": "[gold]★[red] [Store][default]",
+    "reward.kill": "Öldürme için [lime]{0}[default] kredi aldınız.",
+    "reward.headshot": "Kafa vuruşu için [lime]{0}[default] kredi aldınız.",
+    "reward.assist": "Asist için [lime]{0}[default] kredi aldınız.",
+    "reward.mvp": "MVP olduğunuz için [lime]{0}[default] kredi aldınız.",
+    "reward.round_won": "Raunt kazandığınız için [lime]{0}[default] kredi aldınız.",
+    "reward.match_won": "Maç kazandığınız için [lime]{0}[default] kredi aldınız."
+}
