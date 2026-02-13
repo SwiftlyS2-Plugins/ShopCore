@@ -12,6 +12,8 @@
   "shop.error.not_owned": "You do not own [lightred]{0}[default].",
 
   "shop.purchase.success": "Purchased [lime]{0}[default] for [lime]{1}[default]. Balance: [lime]{2}[default].",
+  "shop.preview.unavailable": "No preview is available for [lightyellow]{0}[default].",
+  "shop.preview.cooldown": "Please wait [lightyellow]{0}[default]s before previewing again.",
   "shop.sell.success": "Sold [lime]{0}[default] for [lime]{1}[default]. Balance: [lime]{2}[default].",
   "shop.item.expired": "Your item [lightyellow]{0}[default] has expired.",
   "shop.item.equipped": "Equipped [lime]{0}[default].",
@@ -61,7 +63,10 @@
 
   "shop.menu.buy.title": "Buy",
   "shop.menu.buy.category.title": "{0}",
+  "shop.menu.buy.item.title": "{0}",
   "shop.menu.buy.item.entry": "{0} [{1}]",
+  "shop.menu.buy.item.preview": "Preview item",
+  "shop.menu.buy.item.buy": "Buy [{0}]",
   "shop.menu.buy.item.owned": "{0} | Owned",
   "shop.menu.buy.item.comment": "Duration: {0}",
 

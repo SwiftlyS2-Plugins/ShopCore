@@ -29,6 +29,7 @@ public class Shop_Parachute : BasePlugin
     private const int MaxPlayers = 65;
     private const float PhysicsUpdateIntervalSeconds = 0.05f;
     private const float VelocityEpsilon = 0.5f;
+    private const float PreviewDurationSeconds = 10f;
 
     private sealed class PlayerData
     {
@@ -42,6 +43,7 @@ public class Shop_Parachute : BasePlugin
     private readonly HashSet<string> registeredItemIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> registeredItemOrder = new();
     private readonly Dictionary<string, ParachuteItemRuntime> itemRuntimeById = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<int, ParachutePreviewState> previewRuntimeByPlayerId = new();
     private readonly PlayerData?[] playerDataById = new PlayerData[MaxPlayers];
     private readonly Dictionary<int, float> nextPhysicsUpdateAtByPlayerId = new();
 
@@ -120,6 +122,7 @@ public class Shop_Parachute : BasePlugin
         }
 
         nextPhysicsUpdateAtByPlayerId.Clear();
+        previewRuntimeByPlayerId.Clear();
         UnregisterItemsAndHandlers();
     }
 
@@ -178,6 +181,8 @@ public class Shop_Parachute : BasePlugin
 
     private void OnClientDisconnected(IOnClientDisconnectedEvent e)
     {
+        previewRuntimeByPlayerId.Remove(e.PlayerId);
+
         var player = Core.PlayerManager.GetPlayer(e.PlayerId);
         if (player is null)
         {
@@ -211,7 +216,7 @@ public class Shop_Parachute : BasePlugin
 
             var data = EnsurePlayerData(player);
 
-            if (!TryGetEnabledParachute(player, out var runtime))
+            if (!TryGetActiveParachute(player, out var runtime))
             {
                 if (data.Flying)
                 {
@@ -282,6 +287,7 @@ public class Shop_Parachute : BasePlugin
         shopApi.OnItemToggled += OnItemToggled;
         shopApi.OnItemSold += OnItemSold;
         shopApi.OnItemExpired += OnItemExpired;
+        shopApi.OnItemPreview += OnItemPreview;
         handlersRegistered = true;
 
         Core.Logger.LogInformation(
@@ -301,6 +307,7 @@ public class Shop_Parachute : BasePlugin
         shopApi.OnItemToggled -= OnItemToggled;
         shopApi.OnItemSold -= OnItemSold;
         shopApi.OnItemExpired -= OnItemExpired;
+        shopApi.OnItemPreview -= OnItemPreview;
 
         foreach (var itemId in registeredItemIds)
         {
@@ -335,11 +342,10 @@ public class Shop_Parachute : BasePlugin
             return;
         }
 
-        context.BlockLocalized(
-            "module.parachute.error.permission",
-            context.Item.DisplayName,
-            runtime.RequiredPermission
-        );
+        var player = context.Player;
+        var loc = Core.Translation.GetPlayerLocalizer(player);
+        var prefix = loc["shop.prefix"];
+        context.Block($"{prefix} {loc["module.parachute.error.permission", context.Item.DisplayName, runtime.RequiredPermission]}");
     }
 
     private void OnItemToggled(IPlayer player, ShopItemDefinition item, bool enabled)
@@ -390,6 +396,36 @@ public class Shop_Parachute : BasePlugin
         }
 
         ResetPlayerState(player, removeData: false);
+    }
+
+    private void OnItemPreview(IPlayer player, ShopItemDefinition item)
+    {
+        if (!registeredItemIds.Contains(item.Id))
+        {
+            return;
+        }
+
+        if (!itemRuntimeById.TryGetValue(item.Id, out var runtime))
+        {
+            return;
+        }
+
+        previewRuntimeByPlayerId[player.PlayerID] = new ParachutePreviewState(
+            Runtime: runtime,
+            ExpiresAt: Core.Engine.GlobalVars.CurrentTime + PreviewDurationSeconds
+        );
+
+        Core.Scheduler.NextWorldUpdate(() =>
+        {
+            if (!player.IsValid || player.IsFakeClient)
+            {
+                return;
+            }
+
+            player.SendChat(
+                $"{Core.Localizer["shop.prefix"]} {Core.Localizer["module.parachute.preview.started", item.DisplayName, (int)PreviewDurationSeconds]}"
+            );
+        });
     }
 
     private void ApplyParachutePhysics(IPlayer player, PlayerData data, ParachuteItemRuntime runtime, float currentTime)
@@ -627,6 +663,24 @@ public class Shop_Parachute : BasePlugin
         }
 
         return false;
+    }
+
+    private bool TryGetActiveParachute(IPlayer player, out ParachuteItemRuntime runtime)
+    {
+        runtime = default;
+
+        if (previewRuntimeByPlayerId.TryGetValue(player.PlayerID, out var preview))
+        {
+            if (Core.Engine.GlobalVars.CurrentTime <= preview.ExpiresAt)
+            {
+                runtime = preview.Runtime;
+                return true;
+            }
+
+            previewRuntimeByPlayerId.Remove(player.PlayerID);
+        }
+
+        return TryGetEnabledParachute(player, out runtime);
     }
 
     private bool TryCreateDefinition(
@@ -919,4 +973,6 @@ internal sealed class ParachuteItemTemplate
     public bool? DisableWhenCarryingHostage { get; set; }
     public string RequiredPermission { get; set; } = string.Empty;
 }
+
+internal readonly record struct ParachutePreviewState(ParachuteItemRuntime Runtime, float ExpiresAt);
 

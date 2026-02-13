@@ -1,5 +1,6 @@
 ﻿{
     "shop.prefix": "[gold]★[red] [Store][default]",
     "module.smoke_color.item.permanent.name": "{0} Smoke (Perm)",
-    "module.smoke_color.item.temporary.name": "{0} Smoke ({1})"
+    "module.smoke_color.item.temporary.name": "{0} Smoke ({1})",
+    "module.smoke_color.preview.started": "Preview active for [lightyellow]{0}[default]. Your next smokes use this color for [lightyellow]{1}[default]s."
 }

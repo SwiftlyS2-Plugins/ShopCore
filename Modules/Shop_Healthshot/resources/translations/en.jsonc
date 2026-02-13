@@ -1,5 +1,7 @@
 ﻿{
   "shop.prefix": "[gold]★[red] [Store][default]",
   "module.healthshot.item.instant.name": "Healthshot (Instant)",
-  "module.healthshot.item.hourly.name": "Healthshot (1 Hour)"
+  "module.healthshot.item.hourly.name": "Healthshot (1 Hour)",
+  "module.healthshot.preview.instant": "[lightyellow]{0}[default]: Gives you a healthshot immediately when you buy it.",
+  "module.healthshot.preview.roundstart": "[lightyellow]{0}[default]: Gives you a healthshot at round start while equipped. Duration: [lightyellow]{1}[default]."
 }

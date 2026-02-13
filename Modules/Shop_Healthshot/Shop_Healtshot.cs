@@ -157,6 +157,7 @@ public class Shop_Healtshot : BasePlugin
         }
 
         shopApi.OnItemPurchased += OnItemPurchased;
+        shopApi.OnItemPreview += OnItemPreview;
         handlersRegistered = true;
 
         Core.Logger.LogInformation(
@@ -175,6 +176,7 @@ public class Shop_Healtshot : BasePlugin
         }
 
         shopApi.OnItemPurchased -= OnItemPurchased;
+        shopApi.OnItemPreview -= OnItemPreview;
         foreach (var itemId in registeredItemIds)
         {
             _ = shopApi.UnregisterItem(itemId);
@@ -205,6 +207,31 @@ public class Shop_Healtshot : BasePlugin
         }
 
         _ = GiveHealthshot(player);
+    }
+
+    private void OnItemPreview(IPlayer player, ShopItemDefinition item)
+    {
+        if (!registeredItemIds.Contains(item.Id))
+        {
+            return;
+        }
+
+        if (!itemGrantModes.TryGetValue(item.Id, out var grantMode))
+        {
+            return;
+        }
+
+        if (grantMode == HealthshotGrantMode.OnPurchase)
+        {
+            SendPreviewMessage(player, "module.healthshot.preview.instant", item.DisplayName);
+            return;
+        }
+
+        var durationText = item.Duration.HasValue
+            ? FormatDuration((int)item.Duration.Value.TotalSeconds)
+            : Core.Localizer["shop.menu.item.duration.permanent"];
+
+        SendPreviewMessage(player, "module.healthshot.preview.roundstart", item.DisplayName, durationText);
     }
 
     private void GiveRoundStartHealthshotsToAllPlayers()
@@ -359,6 +386,48 @@ public class Shop_Healtshot : BasePlugin
         }
 
         return itemTemplate.Id.Trim();
+    }
+
+    private void SendPreviewMessage(IPlayer player, string key, params object[] args)
+    {
+        Core.Scheduler.NextWorldUpdate(() =>
+        {
+            if (!player.IsValid || player.IsFakeClient)
+            {
+                return;
+            }
+
+            player.SendChat($"{Core.Localizer["shop.prefix"]} {Core.Localizer[key, args]}");
+        });
+    }
+
+    private static string FormatDuration(int totalSeconds)
+    {
+        if (totalSeconds <= 0)
+        {
+            return "0 Seconds";
+        }
+
+        var ts = TimeSpan.FromSeconds(totalSeconds);
+        if (ts.TotalHours >= 1)
+        {
+            var hours = (int)ts.TotalHours;
+            var minutes = ts.Minutes;
+            return minutes > 0
+                ? $"{hours} Hour{(hours == 1 ? "" : "s")} {minutes} Minute{(minutes == 1 ? "" : "s")}"
+                : $"{hours} Hour{(hours == 1 ? "" : "s")}";
+        }
+
+        if (ts.TotalMinutes >= 1)
+        {
+            var minutes = (int)ts.TotalMinutes;
+            var seconds = ts.Seconds;
+            return seconds > 0
+                ? $"{minutes} Minute{(minutes == 1 ? "" : "s")} {seconds} Second{(seconds == 1 ? "" : "s")}"
+                : $"{minutes} Minute{(minutes == 1 ? "" : "s")}";
+        }
+
+        return $"{ts.Seconds} Second{(ts.Seconds == 1 ? "" : "s")}";
     }
 
     private static void NormalizeConfig(HealthshotModuleConfig config)

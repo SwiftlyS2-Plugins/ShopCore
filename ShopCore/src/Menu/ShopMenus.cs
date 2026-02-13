@@ -191,14 +191,55 @@ public partial class ShopCore
             itemButton.Comment = BuildBuyItemComment(player, item);
             itemButton.Click += (sender, args) =>
             {
-                _ = shopApi.PurchaseItem(args.Player, item.Id);
-                var currentMenu = (sender as IMenuOption)?.Menu;
-                var parentMenu = currentMenu?.Parent.ParentMenu ?? parent;
-                Core.MenusAPI.OpenMenuForPlayer(args.Player, BuildBuyItemsMenu(args.Player, category, subcategory, parentMenu));
+                var parentMenu = (sender as IMenuOption)?.Menu;
+                Core.MenusAPI.OpenMenuForPlayer(args.Player, BuildBuyItemActionMenu(args.Player, item, category, subcategory, parentMenu));
                 return ValueTask.CompletedTask;
             };
             _ = builder.AddOption(itemButton);
         }
+
+        return builder.Build();
+    }
+
+    private IMenuAPI BuildBuyItemActionMenu(
+        IPlayer player,
+        ShopItemDefinition item,
+        string category,
+        string? subcategory = null,
+        IMenuAPI? parent = null)
+    {
+        var builder = CreateBaseMenuBuilder(player, "shop.menu.buy.item.title", parent, item.DisplayName);
+
+        var infoOption = new TextMenuOption(BuildBuyItemText(player, item))
+        {
+            Enabled = false,
+            Comment = BuildBuyItemComment(player, item)
+        };
+        _ = builder.AddOption(infoOption);
+
+        if (item.AllowPreview)
+        {
+            var previewButton = new ButtonMenuOption(Localize(player, "shop.menu.buy.item.preview"));
+            previewButton.Click += (sender, args) =>
+            {
+                _ = shopApi.PreviewItem(args.Player, item.Id);
+                var currentMenu = (sender as IMenuOption)?.Menu;
+                var parentMenu = currentMenu?.Parent.ParentMenu ?? parent;
+                Core.MenusAPI.OpenMenuForPlayer(args.Player, BuildBuyItemActionMenu(args.Player, item, category, subcategory, parentMenu));
+                return ValueTask.CompletedTask;
+            };
+            _ = builder.AddOption(previewButton);
+        }
+
+        var buyButton = new ButtonMenuOption(Localize(player, "shop.menu.buy.item.buy", FormatCredits(item.Price)));
+        buyButton.Click += (sender, args) =>
+        {
+            _ = shopApi.PurchaseItem(args.Player, item.Id);
+            var listParentMenu = parent?.Parent.ParentMenu;
+            Core.MenusAPI.OpenMenuForPlayer(args.Player, BuildBuyItemsMenu(args.Player, category, subcategory, listParentMenu));
+            return ValueTask.CompletedTask;
+        };
+        _ = builder.AddOption(buyButton);
 
         return builder.Build();
     }

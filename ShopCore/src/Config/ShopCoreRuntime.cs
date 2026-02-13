@@ -119,6 +119,11 @@ public partial class ShopCore
             Settings.Behavior.DefaultSellRefundRatio = 1m;
         }
 
+        if (Settings.Behavior.PreviewCooldownSeconds < 0f)
+        {
+            Settings.Behavior.PreviewCooldownSeconds = 0f;
+        }
+
         if (Settings.Ledger.MaxInMemoryEntries < 100)
         {
             Settings.Ledger.MaxInMemoryEntries = 100;

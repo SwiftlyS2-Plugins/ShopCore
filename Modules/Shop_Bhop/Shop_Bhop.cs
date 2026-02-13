@@ -22,6 +22,8 @@ public class Shop_Bhop : BasePlugin
     private const string TemplateFileName = "bhop_config.jsonc";
     private const string TemplateSectionName = "Main";
     private const string DefaultCategory = "Movement/Bhop";
+    private const float PreviewDurationSeconds = 8f;
+    private const int PreviewCooldownSeconds = 12;
 
     private IShopCoreApiV1? shopApi;
     private bool handlersRegistered;
@@ -35,6 +37,8 @@ public class Shop_Bhop : BasePlugin
     private readonly List<string> registeredItemOrder = new();
     private readonly Dictionary<string, BhopItemRuntime> itemRuntimeById = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<int, BhopPlayerState> playerStateById = new();
+    private readonly Dictionary<int, BhopPreviewState> previewStateByPlayerId = new();
+    private readonly Dictionary<ulong, DateTimeOffset> previewCooldownBySteam = new();
     private int pendingConVarSync;
 
     public Shop_Bhop(ISwiftlyCore core) : base(core) { }
@@ -103,6 +107,8 @@ public class Shop_Bhop : BasePlugin
         Core.Event.OnTick -= OnTick;
 
         RunOnMainThread(DisableBhopGlobally);
+        previewStateByPlayerId.Clear();
+        previewCooldownBySteam.Clear();
         UnregisterItemsAndHandlers();
     }
 
@@ -163,6 +169,7 @@ public class Shop_Bhop : BasePlugin
         shopApi.OnItemToggled += OnItemToggled;
         shopApi.OnItemSold += OnItemSold;
         shopApi.OnItemExpired += OnItemExpired;
+        shopApi.OnItemPreview += OnItemPreview;
         handlersRegistered = true;
 
         Core.Logger.LogInformation("Shop_Bhop initialized. RegisteredItems={RegisteredItems}", registeredCount);
@@ -179,6 +186,7 @@ public class Shop_Bhop : BasePlugin
         shopApi.OnItemToggled -= OnItemToggled;
         shopApi.OnItemSold -= OnItemSold;
         shopApi.OnItemExpired -= OnItemExpired;
+        shopApi.OnItemPreview -= OnItemPreview;
 
         foreach (var itemId in registeredItemIds)
         {
@@ -189,6 +197,8 @@ public class Shop_Bhop : BasePlugin
         registeredItemOrder.Clear();
         itemRuntimeById.Clear();
         playerStateById.Clear();
+        previewStateByPlayerId.Clear();
+        previewCooldownBySteam.Clear();
         handlersRegistered = false;
     }
 
@@ -214,11 +224,10 @@ public class Shop_Bhop : BasePlugin
             return;
         }
 
-        context.BlockLocalized(
-            "module.bhop.error.permission",
-            context.Item.DisplayName,
-            runtime.RequiredPermission
-        );
+        var player = context.Player;
+        var loc = Core.Translation.GetPlayerLocalizer(player);
+        var prefix = loc["shop.prefix"];
+        context.Block($"{prefix} {loc["module.bhop.error.permission", context.Item.DisplayName, runtime.RequiredPermission]}");
     }
 
     private void OnItemToggled(IPlayer player, ShopItemDefinition item, bool enabled)
@@ -270,6 +279,35 @@ public class Shop_Bhop : BasePlugin
         RunOnMainThread(() => RefreshPlayerBhopState(player));
     }
 
+    private void OnItemPreview(IPlayer player, ShopItemDefinition item)
+    {
+        if (!registeredItemIds.Contains(item.Id))
+        {
+            return;
+        }
+
+        if (!itemRuntimeById.TryGetValue(item.Id, out var runtime))
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        if (previewCooldownBySteam.TryGetValue(player.SteamID, out var nextAllowedAt) && now < nextAllowedAt)
+        {
+            var remaining = (int)Math.Ceiling((nextAllowedAt - now).TotalSeconds);
+            SendPreviewMessage(player, "module.bhop.preview.cooldown", remaining);
+            return;
+        }
+
+        previewCooldownBySteam[player.SteamID] = now.AddSeconds(PreviewCooldownSeconds);
+        previewStateByPlayerId[player.PlayerID] = new BhopPreviewState(
+            Runtime: runtime,
+            ExpiresAt: Core.Engine.GlobalVars.CurrentTime + PreviewDurationSeconds
+        );
+
+        SendPreviewMessage(player, "module.bhop.preview.started", item.DisplayName, (int)PreviewDurationSeconds);
+    }
+
     private void OnClientConnected(IOnClientConnectedEvent @event)
     {
         RunOnMainThread(() =>
@@ -283,6 +321,7 @@ public class Shop_Bhop : BasePlugin
     {
         RunOnMainThread(() =>
         {
+            previewStateByPlayerId.Remove(@event.PlayerId);
             if (playerStateById.Remove(@event.PlayerId, out var removed) && removed.Active)
             {
                 UpdateGlobalBhopConVarState();
@@ -305,7 +344,7 @@ public class Shop_Bhop : BasePlugin
                 continue;
             }
 
-            if (!TryGetActiveBhop(player, out var runtime))
+            if (!TryGetActiveBhopOrPreview(player, out var runtime))
             {
                 DeactivatePlayerBhop(player);
                 continue;
@@ -340,6 +379,24 @@ public class Shop_Bhop : BasePlugin
         }
 
         return false;
+    }
+
+    private bool TryGetActiveBhopOrPreview(IPlayer player, out BhopItemRuntime runtime)
+    {
+        runtime = default;
+
+        if (previewStateByPlayerId.TryGetValue(player.PlayerID, out var preview))
+        {
+            if (Core.Engine.GlobalVars.CurrentTime <= preview.ExpiresAt)
+            {
+                runtime = preview.Runtime;
+                return true;
+            }
+
+            previewStateByPlayerId.Remove(player.PlayerID);
+        }
+
+        return TryGetActiveBhop(player, out runtime);
     }
 
     private void ActivatePlayerBhop(IPlayer player, BhopItemRuntime runtime)
@@ -395,7 +452,7 @@ public class Shop_Bhop : BasePlugin
             return;
         }
 
-        if (TryGetActiveBhop(player, out var runtime))
+        if (TryGetActiveBhopOrPreview(player, out var runtime))
         {
             ActivatePlayerBhop(player, runtime);
             return;
@@ -515,6 +572,19 @@ public class Shop_Bhop : BasePlugin
             {
                 Core.Logger.LogWarning(ex, "Shop_Bhop main-thread action failed.");
             }
+        });
+    }
+
+    private void SendPreviewMessage(IPlayer player, string key, params object[] args)
+    {
+        RunOnMainThread(() =>
+        {
+            if (!player.IsValid || player.IsFakeClient)
+            {
+                return;
+            }
+
+            player.SendChat($"{Core.Localizer["shop.prefix"]} {Core.Localizer[key, args]}");
         });
     }
 
@@ -721,6 +791,7 @@ public class Shop_Bhop : BasePlugin
 }
 
 internal readonly record struct BhopItemRuntime(string ItemId, int MaxSpeed, string RequiredPermission);
+internal readonly record struct BhopPreviewState(BhopItemRuntime Runtime, float ExpiresAt);
 
 internal sealed class BhopPlayerState
 {

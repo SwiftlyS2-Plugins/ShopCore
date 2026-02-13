@@ -1,8 +1,10 @@
 using System.Text.Json;
+using System.Reflection;
 using Cookies.Contract;
 using Economy.Contract;
 using FreeSql;
 using ShopCore.Contract;
+using SwiftlyS2.Shared;
 using SwiftlyS2.Shared.Database;
 using SwiftlyS2.Shared.Players;
 
@@ -26,10 +28,12 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
     private readonly object sync = new();
     private readonly object ledgerStoreSync = new();
     private readonly object knownModulesSync = new();
+    private readonly object previewCooldownSync = new();
     private readonly Dictionary<string, ShopItemDefinition> itemsById = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, HashSet<string>> categoryToIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> knownModulePluginIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> moduleConfigFileOwners = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<ulong, long> previewCooldownUntilUnixMs = new();
     private IShopLedgerStore ledgerStore = new InMemoryShopLedgerStore(2000);
 
     public ShopCoreApiV1(ShopCore plugin)
@@ -47,6 +51,7 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
     public event Action<IPlayer, ShopItemDefinition, decimal>? OnItemSold;
     public event Action<IPlayer, ShopItemDefinition, bool>? OnItemToggled;
     public event Action<IPlayer, ShopItemDefinition>? OnItemExpired;
+    public event Action<IPlayer, ShopItemDefinition>? OnItemPreview;
     public event Action<ShopLedgerEntry>? OnLedgerEntryRecorded;
 
     internal void ConfigureLedgerStore(LedgerConfig config, string pluginDataDirectory)
@@ -564,8 +569,8 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
             return blockedByModule;
         }
 
-        var isConsumable = item.Type == ShopItemType.Consumable;
-        if (!isConsumable && IsItemOwned(player, item.Id))
+        var tracksOwnership = item.IsEquipable && item.Type != ShopItemType.Consumable;
+        if (tracksOwnership && IsItemOwned(player, item.Id))
         {
             return Fail(
                 ShopTransactionStatus.AlreadyOwned,
@@ -602,7 +607,7 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
         plugin.economyApi.SubtractPlayerBalance(player, WalletKind, buyAmount);
 
         long? expiresAt = null;
-        if (!isConsumable)
+        if (tracksOwnership)
         {
             plugin.playerCookies.Set(player, OwnedKey(item.Id), true);
             plugin.playerCookies.Set(player, EnabledKey(item.Id), true);
@@ -637,6 +642,122 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
         );
     }
 
+    public bool PreviewItem(IPlayer player, string itemId)
+    {
+        if (player is null || !player.IsValid || string.IsNullOrWhiteSpace(itemId))
+        {
+            return false;
+        }
+
+        if (!TryGetItem(itemId, out var item))
+        {
+            plugin.SendLocalizedChat(player, "shop.error.item_not_found", itemId);
+            return false;
+        }
+
+        if (!item.Enabled)
+        {
+            plugin.SendLocalizedChat(player, "shop.error.item_disabled", item.DisplayName);
+            return false;
+        }
+
+        if (!IsTeamAllowed(player, item.Team))
+        {
+            plugin.SendLocalizedChat(player, "shop.error.team_not_allowed", item.DisplayName);
+            return false;
+        }
+
+        if (!item.AllowPreview)
+        {
+            return false;
+        }
+
+        if (IsPreviewOnCooldown(player, out var remainingSeconds))
+        {
+            plugin.SendLocalizedChat(player, "shop.preview.cooldown", remainingSeconds);
+            return false;
+        }
+
+        var handlers = OnItemPreview;
+        if (handlers is null)
+        {
+            plugin.SendLocalizedChat(player, "shop.preview.unavailable", item.DisplayName);
+            return false;
+        }
+
+        var invoked = false;
+        foreach (Action<IPlayer, ShopItemDefinition> handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                handler(player, item);
+                invoked = true;
+            }
+            catch (Exception ex)
+            {
+                plugin.LogWarning(ex, "OnItemPreview hook failed for item '{ItemId}'.", item.Id);
+            }
+        }
+
+        if (!invoked)
+        {
+            plugin.SendLocalizedChat(player, "shop.preview.unavailable", item.DisplayName);
+            return false;
+        }
+
+        MarkPreviewCooldown(player);
+        return true;
+    }
+
+    private bool IsPreviewOnCooldown(IPlayer player, out int remainingSeconds)
+    {
+        remainingSeconds = 0;
+
+        var cooldownSeconds = plugin.Settings.Behavior.PreviewCooldownSeconds;
+        if (cooldownSeconds <= 0f)
+        {
+            return false;
+        }
+
+        if (player.SteamID == 0)
+        {
+            return false;
+        }
+
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        lock (previewCooldownSync)
+        {
+            if (!previewCooldownUntilUnixMs.TryGetValue(player.SteamID, out var untilMs))
+            {
+                return false;
+            }
+
+            if (untilMs <= nowMs)
+            {
+                previewCooldownUntilUnixMs.Remove(player.SteamID);
+                return false;
+            }
+
+            remainingSeconds = Math.Max(1, (int)Math.Ceiling((untilMs - nowMs) / 1000.0));
+            return true;
+        }
+    }
+
+    private void MarkPreviewCooldown(IPlayer player)
+    {
+        var cooldownSeconds = plugin.Settings.Behavior.PreviewCooldownSeconds;
+        if (cooldownSeconds <= 0f || player.SteamID == 0)
+        {
+            return;
+        }
+
+        var untilMs = DateTimeOffset.UtcNow.AddSeconds(cooldownSeconds).ToUnixTimeMilliseconds();
+        lock (previewCooldownSync)
+        {
+            previewCooldownUntilUnixMs[player.SteamID] = untilMs;
+        }
+    }
+
     public ShopTransactionResult SellItem(IPlayer player, string itemId)
     {
         EnsureApis();
@@ -663,6 +784,17 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
         }
 
         if (!item.CanBeSold)
+        {
+            return Fail(
+                ShopTransactionStatus.NotSellable,
+                "Item cannot be sold.",
+                player,
+                "shop.error.not_sellable",
+                item.DisplayName
+            );
+        }
+
+        if (!item.IsEquipable)
         {
             return Fail(
                 ShopTransactionStatus.NotSellable,
@@ -760,6 +892,27 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
 
     private bool IsItemOwnedInternal(IPlayer player, ShopItemDefinition item, bool notifyExpiration)
     {
+        if (!item.IsEquipable)
+        {
+            var ownedKey = OwnedKey(item.Id);
+            var enabledKey = EnabledKey(item.Id);
+            var expireKey = ExpireAtKey(item.Id);
+
+            var hadOwned = plugin.playerCookies.GetOrDefault(player, ownedKey, false);
+            var hadEnabled = plugin.playerCookies.GetOrDefault(player, enabledKey, false);
+            var hadExpireAt = plugin.playerCookies.GetOrDefault(player, expireKey, 0L) > 0L;
+
+            if (hadOwned || hadEnabled || hadExpireAt)
+            {
+                plugin.playerCookies.Set(player, ownedKey, false);
+                plugin.playerCookies.Set(player, enabledKey, false);
+                plugin.playerCookies.Unset(player, expireKey);
+                plugin.playerCookies.Save(player);
+            }
+
+            return false;
+        }
+
         var owned = plugin.playerCookies.GetOrDefault(player, OwnedKey(item.Id), false);
         var enabled = plugin.playerCookies.GetOrDefault(player, EnabledKey(item.Id), false);
 
@@ -806,6 +959,11 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
         EnsureApis();
 
         if (!TryGetItem(itemId, out var item))
+        {
+            return false;
+        }
+
+        if (!item.IsEquipable)
         {
             return false;
         }
@@ -1153,58 +1311,116 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
     private bool TryRunBeforePurchaseHook(IPlayer player, ShopItemDefinition item, out ShopTransactionResult result)
     {
         var context = new ShopBeforePurchaseContext(player, item);
-
-        try
-        {
-            OnBeforeItemPurchase?.Invoke(context);
-        }
-        catch (Exception ex)
-        {
-            plugin.LogWarning(ex, "OnBeforeItemPurchase hook failed for item '{ItemId}'.", item.Id);
-        }
-
-        return TryResolveBlockedHook(context, item, out result);
+        var blockedBy = InvokeBeforePurchaseHooks(context, item.Id);
+        return TryResolveBlockedHook(context, item, blockedBy, out result);
     }
 
     private bool TryRunBeforeSellHook(IPlayer player, ShopItemDefinition item, out ShopTransactionResult result)
     {
         var context = new ShopBeforeSellContext(player, item);
-
-        try
-        {
-            OnBeforeItemSell?.Invoke(context);
-        }
-        catch (Exception ex)
-        {
-            plugin.LogWarning(ex, "OnBeforeItemSell hook failed for item '{ItemId}'.", item.Id);
-        }
-
-        return TryResolveBlockedHook(context, item, out result);
+        var blockedBy = InvokeBeforeSellHooks(context, item.Id);
+        return TryResolveBlockedHook(context, item, blockedBy, out result);
     }
 
     private bool RunBeforeToggleHook(IPlayer player, ShopItemDefinition item, bool targetEnabled)
     {
         var context = new ShopBeforeToggleContext(player, item, targetEnabled);
-
-        try
-        {
-            OnBeforeItemToggle?.Invoke(context);
-        }
-        catch (Exception ex)
-        {
-            plugin.LogWarning(ex, "OnBeforeItemToggle hook failed for item '{ItemId}'.", item.Id);
-        }
+        var blockedBy = InvokeBeforeToggleHooks(context, item.Id);
 
         if (!context.IsBlocked)
         {
             return false;
         }
 
-        SendBlockedMessage(context);
+        SendBlockedMessage(context, blockedBy);
         return true;
     }
 
-    private bool TryResolveBlockedHook(ShopBeforeActionContext context, ShopItemDefinition item, out ShopTransactionResult result)
+    private object? InvokeBeforePurchaseHooks(ShopBeforePurchaseContext context, string itemId)
+    {
+        var handlers = OnBeforeItemPurchase;
+        if (handlers is null)
+        {
+            return null;
+        }
+
+        foreach (Action<ShopBeforePurchaseContext> handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                handler(context);
+            }
+            catch (Exception ex)
+            {
+                plugin.LogWarning(ex, "OnBeforeItemPurchase hook failed for item '{ItemId}'.", itemId);
+            }
+
+            if (context.IsBlocked)
+            {
+                return handler.Target;
+            }
+        }
+
+        return null;
+    }
+
+    private object? InvokeBeforeSellHooks(ShopBeforeSellContext context, string itemId)
+    {
+        var handlers = OnBeforeItemSell;
+        if (handlers is null)
+        {
+            return null;
+        }
+
+        foreach (Action<ShopBeforeSellContext> handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                handler(context);
+            }
+            catch (Exception ex)
+            {
+                plugin.LogWarning(ex, "OnBeforeItemSell hook failed for item '{ItemId}'.", itemId);
+            }
+
+            if (context.IsBlocked)
+            {
+                return handler.Target;
+            }
+        }
+
+        return null;
+    }
+
+    private object? InvokeBeforeToggleHooks(ShopBeforeToggleContext context, string itemId)
+    {
+        var handlers = OnBeforeItemToggle;
+        if (handlers is null)
+        {
+            return null;
+        }
+
+        foreach (Action<ShopBeforeToggleContext> handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                handler(context);
+            }
+            catch (Exception ex)
+            {
+                plugin.LogWarning(ex, "OnBeforeItemToggle hook failed for item '{ItemId}'.", itemId);
+            }
+
+            if (context.IsBlocked)
+            {
+                return handler.Target;
+            }
+        }
+
+        return null;
+    }
+
+    private bool TryResolveBlockedHook(ShopBeforeActionContext context, ShopItemDefinition item, object? blockedBy, out ShopTransactionResult result)
     {
         if (!context.IsBlocked)
         {
@@ -1212,7 +1428,7 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
             return false;
         }
 
-        SendBlockedMessage(context);
+        SendBlockedMessage(context, blockedBy);
         var message = string.IsNullOrWhiteSpace(context.Message) ? "Action blocked by module." : context.Message;
         result = new ShopTransactionResult(
             Status: ShopTransactionStatus.BlockedByModule,
@@ -1222,10 +1438,15 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
         return true;
     }
 
-    private void SendBlockedMessage(ShopBeforeActionContext context)
+    private void SendBlockedMessage(ShopBeforeActionContext context, object? blockedBy)
     {
         if (!string.IsNullOrWhiteSpace(context.TranslationKey))
         {
+            if (TrySendBlockedMessageWithModuleLocalizer(context, blockedBy))
+            {
+                return;
+            }
+
             plugin.SendLocalizedChat(context.Player, context.TranslationKey, context.TranslationArgs);
             return;
         }
@@ -1233,6 +1454,46 @@ internal sealed class ShopCoreApiV1 : IShopCoreApiV1
         if (!string.IsNullOrWhiteSpace(context.Message))
         {
             plugin.SendChatRaw(context.Player, context.Message);
+        }
+    }
+
+    private bool TrySendBlockedMessageWithModuleLocalizer(ShopBeforeActionContext context, object? blockedBy)
+    {
+        if (blockedBy is null || string.IsNullOrWhiteSpace(context.TranslationKey))
+        {
+            return false;
+        }
+
+        try
+        {
+            var coreProperty = blockedBy.GetType().GetProperty("Core", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (coreProperty?.GetValue(blockedBy) is not ISwiftlyCore moduleCore)
+            {
+                return false;
+            }
+
+            var localized = moduleCore.Localizer[context.TranslationKey, context.TranslationArgs];
+            if (string.IsNullOrWhiteSpace(localized) || string.Equals(localized, context.TranslationKey, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var prefix = moduleCore.Localizer["shop.prefix"];
+            var message = string.IsNullOrWhiteSpace(prefix) || string.Equals(prefix, "shop.prefix", StringComparison.Ordinal)
+                ? localized
+                : $"{prefix} {localized}";
+
+            plugin.SendChatRaw(context.Player, message);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            plugin.LogDebug(
+                "Failed to resolve blocked message from module localizer for key '{TranslationKey}'. Error={Error}",
+                context.TranslationKey,
+                ex.Message
+            );
+            return false;
         }
     }
 

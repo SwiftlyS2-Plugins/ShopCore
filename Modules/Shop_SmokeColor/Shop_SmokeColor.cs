@@ -26,9 +26,11 @@ public class Shop_SmokeColor : BasePlugin
 
     private IShopCoreApiV1? shopApi;
     private bool handlersRegistered;
+    private const float PreviewDurationSeconds = 15f;
     private readonly HashSet<string> registeredItemIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> registeredItemOrder = new();
     private readonly Dictionary<string, Vector> itemColorsById = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<int, SmokePreviewState> previewColorByPlayerId = new();
 
     public Shop_SmokeColor(ISwiftlyCore core) : base(core) { }
 
@@ -68,6 +70,7 @@ public class Shop_SmokeColor : BasePlugin
     public override void Load(bool hotReload)
     {
         Core.Event.OnEntityCreated += OnEntityCreated;
+        Core.Event.OnClientDisconnected += OnClientDisconnected;
 
         if (shopApi is not null && !handlersRegistered)
         {
@@ -78,7 +81,14 @@ public class Shop_SmokeColor : BasePlugin
     public override void Unload()
     {
         Core.Event.OnEntityCreated -= OnEntityCreated;
+        Core.Event.OnClientDisconnected -= OnClientDisconnected;
         UnregisterItemsAndHandlers();
+        previewColorByPlayerId.Clear();
+    }
+
+    private void OnClientDisconnected(IOnClientDisconnectedEvent e)
+    {
+        previewColorByPlayerId.Remove(e.PlayerId);
     }
 
     private void OnEntityCreated(IOnEntityCreatedEvent e)
@@ -124,7 +134,7 @@ public class Shop_SmokeColor : BasePlugin
                 return;
             }
 
-            if (!TryGetEnabledSmokeColor(player, out var color))
+            if (!TryGetEnabledSmokeColor(player, out var color) && !TryGetPreviewSmokeColor(player, out color))
             {
                 return;
             }
@@ -220,6 +230,7 @@ public class Shop_SmokeColor : BasePlugin
         }
 
         shopApi.OnItemToggled += OnItemToggled;
+        shopApi.OnItemPreview += OnItemPreview;
         handlersRegistered = true;
 
         Core.Logger.LogInformation(
@@ -236,6 +247,7 @@ public class Shop_SmokeColor : BasePlugin
         }
 
         shopApi.OnItemToggled -= OnItemToggled;
+        shopApi.OnItemPreview -= OnItemPreview;
 
         foreach (var itemId in registeredItemIds)
         {
@@ -269,6 +281,61 @@ public class Shop_SmokeColor : BasePlugin
 
             _ = shopApi.SetItemEnabled(player, otherItemId, false);
         }
+    }
+
+    private void OnItemPreview(IPlayer player, ShopItemDefinition item)
+    {
+        if (!registeredItemIds.Contains(item.Id))
+        {
+            return;
+        }
+
+        if (!itemColorsById.TryGetValue(item.Id, out var color))
+        {
+            return;
+        }
+
+        var playerId = player.PlayerID;
+        if (playerId < 0)
+        {
+            return;
+        }
+
+        previewColorByPlayerId[playerId] = new SmokePreviewState(
+            Color: color,
+            ExpiresAt: Core.Engine.GlobalVars.CurrentTime + PreviewDurationSeconds
+        );
+
+        Core.Scheduler.NextWorldUpdate(() =>
+        {
+            if (!player.IsValid || player.IsFakeClient)
+            {
+                return;
+            }
+
+            player.SendChat(
+                $"{Core.Localizer["shop.prefix"]} {Core.Localizer["module.smoke_color.preview.started", item.DisplayName, (int)PreviewDurationSeconds]}"
+            );
+        });
+    }
+
+    private bool TryGetPreviewSmokeColor(IPlayer player, out Vector color)
+    {
+        color = Vector.Zero;
+
+        if (!previewColorByPlayerId.TryGetValue(player.PlayerID, out var preview))
+        {
+            return false;
+        }
+
+        if (Core.Engine.GlobalVars.CurrentTime > preview.ExpiresAt)
+        {
+            previewColorByPlayerId.Remove(player.PlayerID);
+            return false;
+        }
+
+        color = preview.Color;
+        return true;
     }
 
     private bool TryCreateDefinition(
@@ -587,4 +654,6 @@ internal sealed class SmokeColorItemTemplate
     public string ColorName { get; set; } = "Red";
     public List<int> Color { get; set; } = [];
 }
+
+internal readonly record struct SmokePreviewState(Vector Color, float ExpiresAt);
 

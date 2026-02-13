@@ -17,6 +17,7 @@ ShopCore is the base shop system for SwiftlyS2. It provides:
 
 - A shared contract (`IShopCoreApiV1`) for other plugins to register items and interact with credits.
 - Buy and inventory menus with category and optional subcategory navigation.
+- Item preview flow from buy menus (`Preview item`) for module-defined effects.
 - Credit economy integration via `Economy.API.v1`.
 - Item state persistence and expiration via `Cookies.Player.V1`.
 - Optional item selling, gifting, starting credits, and timed income.
@@ -150,13 +151,13 @@ ShopCore reads config from the `Main` section.
 
 ### Ledger Persistence (`Main.Ledger.Persistence`)
 
-| Setting             | Default  | Description                                                                          |
-| :------------------ | :------- | :----------------------------------------------------------------------------------- |
-| `Enabled`           | `false`  | Enables persistent ledger backend via FreeSql.                                       |
-| `Provider`          | `sqlite` | Persistence provider (`sqlite`, `mysql`, or `auto`).                                |
-| `ConnectionName`    | `default`| Swiftly database connection name used when `ConnectionString` is empty.              |
-| `ConnectionString`  | `""`     | FreeSql connection string. Supports `${PluginDataDirectory}` token for sqlite paths. |
-| `AutoSyncStructure` | `true`   | Auto-creates/updates the ledger table structure.                                     |
+| Setting             | Default   | Description                                                                          |
+| :------------------ | :-------- | :----------------------------------------------------------------------------------- |
+| `Enabled`           | `false`   | Enables persistent ledger backend via FreeSql.                                       |
+| `Provider`          | `sqlite`  | Persistence provider (`sqlite`, `mysql`, or `auto`).                                 |
+| `ConnectionName`    | `default` | Swiftly database connection name used when `ConnectionString` is empty.              |
+| `ConnectionString`  | `""`      | FreeSql connection string. Supports `${PluginDataDirectory}` token for sqlite paths. |
+| `AutoSyncStructure` | `true`    | Auto-creates/updates the ledger table structure.                                     |
 
 ### Example
 
@@ -263,6 +264,22 @@ Menus resolve this as:
 
 This is fully backward compatible with existing one-level categories.
 
+## Item Preview System
+
+ShopCore supports optional item previews directly from buy item actions.
+
+- `ShopItemDefinition.AllowPreview` controls whether preview option is shown (default `true`).
+- Buy flow is: `Buy -> Category -> Item -> (Preview item / Buy)`.
+- Modules can subscribe to `OnItemPreview` and run custom preview logic.
+- Modules can also trigger previews manually via `PreviewItem(player, itemId)`.
+
+### Typical preview patterns
+
+- Visual modules: temporary model/color/effect for a few seconds.
+- Projectile/equipment modules: temporary preview window for next usage.
+- Utility/consumable modules: descriptive chat preview explaining behavior.
+- Movement modules: short timed trial with cooldown to avoid spam.
+
 ### Recommended Layout
 
 - Keep editable centralized files in Swiftly configs:
@@ -288,7 +305,7 @@ Use positive whole-number credit amounts for item prices and credit operations.
 - optional `Duration`
 - `Type` (`Passive`, `Consumable`, `Temporary`, `Permanent`)
 - `Team` (`Any`, `T`, `CT`)
-- `Enabled`, `CanBeSold`
+- `Enabled`, `CanBeSold`, `AllowPreview`
 
 ### Core API (`IShopCoreApiV1`)
 
@@ -298,6 +315,7 @@ Main capabilities exposed to other plugins:
 - Load typed module configs through ShopCore centralized config path.
 - Read/add/subtract/check player credits.
 - Purchase and sell items with detailed `ShopTransactionResult`.
+- Trigger item previews via `PreviewItem(...)`.
 - Enable/disable item per player.
 - Read item expiration timestamp.
 - Read recent transaction ledger entries (global/per-player).
@@ -310,6 +328,7 @@ Main capabilities exposed to other plugins:
   - `OnItemSold`
   - `OnItemToggled`
   - `OnItemExpired`
+  - `OnItemPreview`
   - `OnLedgerEntryRecorded`
 
 ### Transaction result
@@ -359,7 +378,8 @@ public class MyModule : BasePlugin
             Type: ShopItemType.Temporary,
             Team: ShopItemTeam.Any,
             Enabled: true,
-            CanBeSold: true
+            CanBeSold: true,
+            AllowPreview: true
         ));
     }
 

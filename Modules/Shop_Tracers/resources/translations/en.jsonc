@@ -4,5 +4,6 @@
   "module.tracers.item.temporary.name": "{0} Tracer ({1})",
   "module.tracers.item.permanent.name": "{0} Tracer (Perm)",
 
-  "module.tracers.error.permission": "You need permission [lightred]{1}[default] to buy [lightred]{0}[default]."
+  "module.tracers.error.permission": "You need permission [lightred]{1}[default] to buy [lightred]{0}[default].",
+  "module.tracers.preview.started": "Preview active for [lightyellow]{0}[default] for [lightyellow]{1}[default]s. Shoot to test."
 }

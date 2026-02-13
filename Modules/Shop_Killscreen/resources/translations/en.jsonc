@@ -1,5 +1,6 @@
 ﻿{
     "shop.prefix": "[gold]★[red] [Store][default]",
     "module.killscreen.item.permanent.name": "Killscreen (Perm)",
-    "module.killscreen.item.temporary.name": "Killscreen ({0})"
+    "module.killscreen.item.temporary.name": "Killscreen ({0})",
+    "module.killscreen.preview.started": "Preview triggered for [lightyellow]{0}[default]. Get a kill to see the full effect."
 }

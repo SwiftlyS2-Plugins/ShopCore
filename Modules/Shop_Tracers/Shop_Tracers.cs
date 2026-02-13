@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using ShopCore.Contract;
 using SwiftlyS2.Shared;
+using SwiftlyS2.Shared.Events;
 using SwiftlyS2.Shared.GameEventDefinitions;
 using SwiftlyS2.Shared.GameEvents;
 using SwiftlyS2.Shared.Misc;
@@ -25,6 +26,7 @@ public class Shop_Tracers : BasePlugin
     private const string TemplateFileName = "tracers_config.jsonc";
     private const string TemplateSectionName = "Main";
     private const string DefaultCategory = "Visuals/Tracers";
+    private const float PreviewDurationSeconds = 12f;
 
     private static readonly Color TeamTColor = new(255, 220, 50, 255);
     private static readonly Color TeamCtColor = new(80, 170, 255, 255);
@@ -35,6 +37,7 @@ public class Shop_Tracers : BasePlugin
     private readonly HashSet<string> registeredItemIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> registeredItemOrder = new();
     private readonly Dictionary<string, TracerItemRuntime> itemRuntimeById = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<int, TracerPreviewState> previewRuntimeByPlayerId = new();
     private readonly Random random = new();
 
     private TracersModuleSettings runtimeSettings = new();
@@ -78,6 +81,8 @@ public class Shop_Tracers : BasePlugin
 
     public override void Load(bool hotReload)
     {
+        Core.Event.OnClientDisconnected += OnClientDisconnected;
+
         if (shopApi is not null && !handlersRegistered)
         {
             RegisterItemsAndHandlers();
@@ -86,7 +91,14 @@ public class Shop_Tracers : BasePlugin
 
     public override void Unload()
     {
+        Core.Event.OnClientDisconnected -= OnClientDisconnected;
+        previewRuntimeByPlayerId.Clear();
         UnregisterItemsAndHandlers();
+    }
+
+    private void OnClientDisconnected(IOnClientDisconnectedEvent e)
+    {
+        previewRuntimeByPlayerId.Remove(e.PlayerId);
     }
 
     [GameEventHandler(HookMode.Pre)]
@@ -103,7 +115,7 @@ public class Shop_Tracers : BasePlugin
             return HookResult.Continue;
         }
 
-        if (!TryGetEnabledRuntime(player, out var runtime))
+        if (!TryGetActiveRuntime(player, out var runtime))
         {
             return HookResult.Continue;
         }
@@ -181,6 +193,7 @@ public class Shop_Tracers : BasePlugin
         shopApi.OnItemToggled += OnItemToggled;
         shopApi.OnItemSold += OnItemSold;
         shopApi.OnItemExpired += OnItemExpired;
+        shopApi.OnItemPreview += OnItemPreview;
         handlersRegistered = true;
 
         Core.Logger.LogInformation(
@@ -200,6 +213,7 @@ public class Shop_Tracers : BasePlugin
         shopApi.OnItemToggled -= OnItemToggled;
         shopApi.OnItemSold -= OnItemSold;
         shopApi.OnItemExpired -= OnItemExpired;
+        shopApi.OnItemPreview -= OnItemPreview;
 
         foreach (var itemId in registeredItemIds)
         {
@@ -234,11 +248,10 @@ public class Shop_Tracers : BasePlugin
             return;
         }
 
-        context.BlockLocalized(
-            "module.tracers.error.permission",
-            context.Item.DisplayName,
-            runtime.RequiredPermission
-        );
+        var player = context.Player;
+        var loc = Core.Translation.GetPlayerLocalizer(player);
+        var prefix = loc["shop.prefix"];
+        context.Block($"{prefix} {loc["module.tracers.error.permission", context.Item.DisplayName, runtime.RequiredPermission]}");
     }
 
     private void OnItemToggled(IPlayer player, ShopItemDefinition item, bool enabled)
@@ -270,6 +283,54 @@ public class Shop_Tracers : BasePlugin
 
     private void OnItemExpired(IPlayer player, ShopItemDefinition item)
     {
+    }
+
+    private void OnItemPreview(IPlayer player, ShopItemDefinition item)
+    {
+        if (!registeredItemIds.Contains(item.Id))
+        {
+            return;
+        }
+
+        if (!itemRuntimeById.TryGetValue(item.Id, out var runtime))
+        {
+            return;
+        }
+
+        previewRuntimeByPlayerId[player.PlayerID] = new TracerPreviewState(
+            Runtime: runtime,
+            ExpiresAt: Core.Engine.GlobalVars.CurrentTime + PreviewDurationSeconds
+        );
+
+        Core.Scheduler.NextWorldUpdate(() =>
+        {
+            if (!player.IsValid || player.IsFakeClient)
+            {
+                return;
+            }
+
+            player.SendChat(
+                $"{Core.Localizer["shop.prefix"]} {Core.Localizer["module.tracers.preview.started", item.DisplayName, (int)PreviewDurationSeconds]}"
+            );
+        });
+    }
+
+    private bool TryGetActiveRuntime(IPlayer player, out TracerItemRuntime runtime)
+    {
+        runtime = default;
+
+        if (previewRuntimeByPlayerId.TryGetValue(player.PlayerID, out var preview))
+        {
+            if (Core.Engine.GlobalVars.CurrentTime <= preview.ExpiresAt)
+            {
+                runtime = preview.Runtime;
+                return true;
+            }
+
+            previewRuntimeByPlayerId.Remove(player.PlayerID);
+        }
+
+        return TryGetEnabledRuntime(player, out runtime);
     }
 
     private bool TryGetEnabledRuntime(IPlayer player, out TracerItemRuntime runtime)
@@ -780,4 +841,6 @@ internal sealed class TracerItemTemplate
     public float? OriginZOffset { get; set; }
     public string RequiredPermission { get; set; } = string.Empty;
 }
+
+internal readonly record struct TracerPreviewState(TracerItemRuntime Runtime, float ExpiresAt);
 

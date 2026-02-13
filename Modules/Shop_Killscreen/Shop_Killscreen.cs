@@ -153,6 +153,7 @@ public class Shop_Killscreen : BasePlugin
         }
 
         shopApi.OnItemToggled += OnItemToggled;
+        shopApi.OnItemPreview += OnItemPreview;
         handlersRegistered = true;
 
         Core.Logger.LogInformation(
@@ -168,6 +169,7 @@ public class Shop_Killscreen : BasePlugin
         }
 
         shopApi.OnItemToggled -= OnItemToggled;
+        shopApi.OnItemPreview -= OnItemPreview;
 
         foreach (var itemId in registeredItemIds)
         {
@@ -199,6 +201,33 @@ public class Shop_Killscreen : BasePlugin
 
             _ = shopApi.SetItemEnabled(player, otherItemId, false);
         }
+    }
+
+    private void OnItemPreview(IPlayer player, ShopItemDefinition item)
+    {
+        if (!registeredItemIds.Contains(item.Id))
+        {
+            return;
+        }
+
+        Core.Scheduler.NextWorldUpdate(() =>
+        {
+            if (!player.IsValid || player.IsFakeClient)
+            {
+                return;
+            }
+
+            var pawn = player.PlayerPawn;
+            if (pawn is null || !pawn.IsValid)
+            {
+                return;
+            }
+
+            var currentTime = Core.Engine.GlobalVars.CurrentTime;
+            pawn.HealthShotBoostExpirationTime.Value = currentTime + 1.0f;
+            pawn.HealthShotBoostExpirationTimeUpdated();
+            player.SendChat($"{Core.Localizer["shop.prefix"]} {Core.Localizer["module.killscreen.preview.started", item.DisplayName]}");
+        });
     }
     private bool TryCreateDefinition(
         KillscreenItemTemplate itemTemplate,

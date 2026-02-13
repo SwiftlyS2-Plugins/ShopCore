@@ -64,6 +64,7 @@ public sealed class BehaviorConfig
 {
     public bool AllowSelling { get; set; } = true;
     public decimal DefaultSellRefundRatio { get; set; } = 0.50m;
+    public float PreviewCooldownSeconds { get; set; } = 3f;
 }
 
 public sealed class CreditTransferConfig

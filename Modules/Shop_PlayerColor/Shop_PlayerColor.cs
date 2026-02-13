@@ -26,6 +26,7 @@ public class Shop_PlayerColor : BasePlugin
     private const string TemplateFileName = "playercolor_config.jsonc";
     private const string TemplateSectionName = "Main";
     private const string DefaultCategory = "Visuals/Player Colors";
+    private const float PreviewDurationSeconds = 8f;
 
     private static readonly Color DefaultPlayerColor = new(255, 255, 255, 255);
 
@@ -33,6 +34,7 @@ public class Shop_PlayerColor : BasePlugin
     private readonly List<string> registeredItemOrder = new();
     private readonly Dictionary<string, PlayerColorItemRuntime> itemRuntimeById = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<int, float> nextRainbowUpdateAtByPlayerId = new();
+    private readonly Dictionary<int, PlayerColorPreviewState> previewRuntimeByPlayerId = new();
     private readonly Random random = new();
 
     private IShopCoreApiV1? shopApi;
@@ -105,6 +107,7 @@ public class Shop_PlayerColor : BasePlugin
         }
 
         nextRainbowUpdateAtByPlayerId.Clear();
+        previewRuntimeByPlayerId.Clear();
         UnregisterItemsAndHandlers();
     }
 
@@ -137,6 +140,7 @@ public class Shop_PlayerColor : BasePlugin
     private void OnClientDisconnected(IOnClientDisconnectedEvent e)
     {
         nextRainbowUpdateAtByPlayerId.Remove(e.PlayerId);
+        previewRuntimeByPlayerId.Remove(e.PlayerId);
     }
 
     private void OnTick()
@@ -155,7 +159,7 @@ public class Shop_PlayerColor : BasePlugin
                 continue;
             }
 
-            if (!TryGetEnabledRuntime(player, out var runtime))
+            if (!TryGetActiveRuntime(player, out var runtime))
             {
                 nextRainbowUpdateAtByPlayerId.Remove(player.PlayerID);
                 continue;
@@ -235,6 +239,7 @@ public class Shop_PlayerColor : BasePlugin
         shopApi.OnItemToggled += OnItemToggled;
         shopApi.OnItemSold += OnItemSold;
         shopApi.OnItemExpired += OnItemExpired;
+        shopApi.OnItemPreview += OnItemPreview;
         handlersRegistered = true;
 
         Core.Logger.LogInformation(
@@ -254,6 +259,7 @@ public class Shop_PlayerColor : BasePlugin
         shopApi.OnItemToggled -= OnItemToggled;
         shopApi.OnItemSold -= OnItemSold;
         shopApi.OnItemExpired -= OnItemExpired;
+        shopApi.OnItemPreview -= OnItemPreview;
 
         foreach (var itemId in registeredItemIds)
         {
@@ -289,11 +295,10 @@ public class Shop_PlayerColor : BasePlugin
             return;
         }
 
-        context.BlockLocalized(
-            "module.player_color.error.permission",
-            context.Item.DisplayName,
-            runtime.RequiredPermission
-        );
+        var player = context.Player;
+        var loc = Core.Translation.GetPlayerLocalizer(player);
+        var prefix = loc["shop.prefix"];
+        context.Block($"{prefix} {loc["module.player_color.error.permission", context.Item.DisplayName, runtime.RequiredPermission]}");
     }
 
     private void OnItemToggled(IPlayer player, ShopItemDefinition item, bool enabled)
@@ -344,6 +349,27 @@ public class Shop_PlayerColor : BasePlugin
         RefreshPlayerColor(player);
     }
 
+    private void OnItemPreview(IPlayer player, ShopItemDefinition item)
+    {
+        if (!registeredItemIds.Contains(item.Id))
+        {
+            return;
+        }
+
+        if (!itemRuntimeById.TryGetValue(item.Id, out var runtime))
+        {
+            return;
+        }
+
+        previewRuntimeByPlayerId[player.PlayerID] = new PlayerColorPreviewState(
+            Runtime: runtime,
+            ExpiresAt: Core.Engine.GlobalVars.CurrentTime + PreviewDurationSeconds
+        );
+
+        RefreshPlayerColor(player);
+        SendPreviewMessage(player, "module.player_color.preview.started", item.DisplayName, (int)PreviewDurationSeconds);
+    }
+
     private void RefreshPlayerColor(IPlayer player)
     {
         if (shopApi is null || player is null || !player.IsValid || player.IsFakeClient)
@@ -351,7 +377,7 @@ public class Shop_PlayerColor : BasePlugin
             return;
         }
 
-        if (!TryGetEnabledRuntime(player, out var runtime))
+        if (!TryGetActiveRuntime(player, out var runtime))
         {
             nextRainbowUpdateAtByPlayerId.Remove(player.PlayerID);
             ResetPlayerColor(player);
@@ -368,6 +394,24 @@ public class Shop_PlayerColor : BasePlugin
 
         nextRainbowUpdateAtByPlayerId.Remove(player.PlayerID);
         ApplyColor(player, runtime.StaticColor);
+    }
+
+    private bool TryGetActiveRuntime(IPlayer player, out PlayerColorItemRuntime runtime)
+    {
+        runtime = default;
+
+        if (previewRuntimeByPlayerId.TryGetValue(player.PlayerID, out var preview))
+        {
+            if (Core.Engine.GlobalVars.CurrentTime <= preview.ExpiresAt)
+            {
+                runtime = preview.Runtime;
+                return true;
+            }
+
+            previewRuntimeByPlayerId.Remove(player.PlayerID);
+        }
+
+        return TryGetEnabledRuntime(player, out runtime);
     }
 
     private bool TryGetEnabledRuntime(IPlayer player, out PlayerColorItemRuntime runtime)
@@ -423,6 +467,19 @@ public class Shop_PlayerColor : BasePlugin
 
             pawn.Render = DefaultPlayerColor;
             pawn.RenderUpdated();
+        });
+    }
+
+    private void SendPreviewMessage(IPlayer player, string key, params object[] args)
+    {
+        Core.Scheduler.NextWorldUpdate(() =>
+        {
+            if (!player.IsValid || player.IsFakeClient)
+            {
+                return;
+            }
+
+            player.SendChat($"{Core.Localizer["shop.prefix"]} {Core.Localizer[key, args]}");
         });
     }
 
@@ -792,4 +849,6 @@ internal sealed class PlayerColorItemTemplate
     public float? RainbowUpdateIntervalSeconds { get; set; }
     public string RequiredPermission { get; set; } = string.Empty;
 }
+
+internal readonly record struct PlayerColorPreviewState(PlayerColorItemRuntime Runtime, float ExpiresAt);
 

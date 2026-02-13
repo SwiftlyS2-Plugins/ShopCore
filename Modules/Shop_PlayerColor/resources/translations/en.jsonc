@@ -5,5 +5,6 @@
   "module.player_color.item.rainbow.name": "Rainbow Player Color ({0})",
   "module.player_color.item.permanent.name": "{0} Player Color (Perm)",
 
-  "module.player_color.error.permission": "You need permission [lightred]{1}[default] to buy [lightred]{0}[default]."
+  "module.player_color.error.permission": "You need permission [lightred]{1}[default] to buy [lightred]{0}[default].",
+  "module.player_color.preview.started": "Preview active for [lightyellow]{0}[default] for [lightyellow]{1}[default]s."
 }
