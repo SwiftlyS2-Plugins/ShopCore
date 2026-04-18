@@ -81,10 +81,7 @@ public class Shop_DecoyTeleport : BasePlugin
             return;
         }
 
-        if (handlersRegistered)
-        {
-            return;
-        }
+        UnregisterHandlers();
 
         Config = shopApi.LoadModuleConfig<DecoyModuleConfig>(
             ModulePluginId,
@@ -258,21 +255,28 @@ public class Shop_DecoyTeleport : BasePlugin
 
     public override void Unload()
     {
-        if (shopApi is not null)
-        {
-            shopApi.OnItemPurchased -= OnItemPurchased;
-            shopApi.OnBeforeItemPurchase -= OnBeforeItemPurchase;
-
-            if (!string.IsNullOrWhiteSpace(Config.Decoy.Id))
-            {
-                _ = shopApi.UnregisterItem(Config.Decoy.Id);
-            }
-        }
+        UnregisterHandlers();
 
         lock (stateSync)
         {
             armedPlayers.Clear();
             cooldownUntilUnixSeconds.Clear();
+        }
+    }
+
+    private void UnregisterHandlers()
+    {
+        if (!handlersRegistered || shopApi is null)
+        {
+            return;
+        }
+
+        shopApi.OnItemPurchased -= OnItemPurchased;
+        shopApi.OnBeforeItemPurchase -= OnBeforeItemPurchase;
+
+        if (!string.IsNullOrWhiteSpace(Config.Decoy.Id))
+        {
+            _ = shopApi.UnregisterItem(Config.Decoy.Id);
         }
 
         handlersRegistered = false;

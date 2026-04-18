@@ -47,7 +47,7 @@ public class Shop_Rewards : BasePlugin
         }
         catch (Exception ex)
         {
-            Core.Logger.LogInformation(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
+            Core.Logger.LogError(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
         }
 
         TryLoadConfig();
@@ -110,42 +110,27 @@ public class Shop_Rewards : BasePlugin
     [GameEventHandler(HookMode.Post)]
     public HookResult OnRoundStart(EventRoundStart e)
     {
-        List<IPlayer> onlinePlayers = Core.PlayerManager.GetAllValidPlayers().ToList();
+        if (shopApi == null)
+        {
+            return HookResult.Continue;
+        }
+
+        var onlinePlayers = Core.PlayerManager.GetAllValidPlayers().ToList();
 
         if (IsWarmupPeriod() && config.DisableInWarmup)
         {
             foreach (var player in onlinePlayers)
             {
-                var loc = Core.Translation.GetPlayerLocalizer(player);
-                var prefix = loc["shop.prefix"];
-                if (config.UseCorePrefix)
-                {
-                    var corePrefix = shopApi?.GetShopPrefix(player);
-                    if (!string.IsNullOrWhiteSpace(corePrefix))
-                    {
-                        prefix = corePrefix;
-                    }
-                }
-                player.SendChat($"{prefix} + {loc["module.disabled.warmup"]}");
+                NotifyPlayer(player, "module.disabled.warmup");
             }
             return HookResult.Continue;
         }
+
         if (onlinePlayers.Count < config.MinPlayers)
         {
             foreach (var player in onlinePlayers)
             {
-                var loc = Core.Translation.GetPlayerLocalizer(player);
-                var prefix = loc["shop.prefix"];
-                if (config.UseCorePrefix)
-                {
-                    var corePrefix = shopApi?.GetShopPrefix(player);
-                    if (!string.IsNullOrWhiteSpace(corePrefix))
-                    {
-                        prefix = corePrefix;
-                    }
-                }
-
-                player.SendChat($"{prefix} + {loc["module.disabled", config.MinPlayers]}");
+                NotifyPlayer(player, "module.disabled", config.MinPlayers);
             }
             return HookResult.Continue;
         }
@@ -306,20 +291,32 @@ public class Shop_Rewards : BasePlugin
         return true;
     }
 
-    private void SendRewardMessage(IPlayer player, string key, int rewardConfig)
+    private string GetPrefix(IPlayer player)
     {
         var loc = Core.Translation.GetPlayerLocalizer(player);
-        var prefix = loc["shop.prefix"];
         if (config.UseCorePrefix)
         {
             var corePrefix = shopApi?.GetShopPrefix(player);
             if (!string.IsNullOrWhiteSpace(corePrefix))
             {
-                prefix = corePrefix;
+                return corePrefix;
             }
         }
 
-        player.SendChat($"{prefix} {loc[key, rewardConfig]}");
+        return loc["shop.prefix"];
+    }
+
+    private void NotifyPlayer(IPlayer player, string key, params object[] args)
+    {
+        var loc = Core.Translation.GetPlayerLocalizer(player);
+        var msg = args.Length == 0 ? loc[key] : loc[key, args];
+        player.SendChat($"{GetPrefix(player)} {msg}");
+    }
+
+    private void SendRewardMessage(IPlayer player, string key, int rewardConfig)
+    {
+        var loc = Core.Translation.GetPlayerLocalizer(player);
+        player.SendChat($"{GetPrefix(player)} {loc[key, rewardConfig]}");
     }
     private bool IsWarmupPeriod()
     {

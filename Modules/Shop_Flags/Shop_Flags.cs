@@ -56,7 +56,7 @@ public class Shop_Flags : BasePlugin
         }
         catch (Exception ex)
         {
-            Core.Logger.LogInformation(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
+            Core.Logger.LogError(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
         }
     }
 
@@ -68,8 +68,7 @@ public class Shop_Flags : BasePlugin
             return;
         }
 
-        if (!handlersRegistered)
-            RegisterItemsAndHandlers();
+        RegisterItemsAndHandlers();
     }
 
     public override void Load(bool hotReload)

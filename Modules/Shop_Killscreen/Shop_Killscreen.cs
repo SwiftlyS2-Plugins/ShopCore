@@ -12,7 +12,7 @@ namespace ShopCore;
 
 [PluginMetadata(
     Id = "Shop_Killscreen",
-    Name = "Shpo Killscreen",
+    Name = "Shop Killscreen",
     Author = "T3Marius",
     Version = "1.0.0",
     Description = "ShopCore module with killscreen items"
@@ -47,21 +47,18 @@ public class Shop_Killscreen : BasePlugin
         }
         catch (Exception ex)
         {
-            Core.Logger.LogInformation(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
+            Core.Logger.LogError(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
         }
     }
     public override void OnSharedInterfaceInjected(IInterfaceManager interfaceManager)
     {
         if (shopApi == null)
         {
-            Core.Logger.LogWarning("ShopCore API is not available. SmokeColor items will not be registered.");
+            Core.Logger.LogWarning("ShopCore API is not available. Killscreen items will not be registered.");
             return;
         }
 
-        if (!handlersRegistered)
-        {
-            RegisterItemsAndHandlers();
-        }
+        RegisterItemsAndHandlers();
     }
     public override void Load(bool hotReload)
     {
@@ -146,7 +143,7 @@ public class Shop_Killscreen : BasePlugin
 
             if (!shopApi.RegisterItem(definition))
             {
-                Core.Logger.LogWarning("Failed to register smokecolor item '{ItemId}'.", definition.Id);
+                Core.Logger.LogWarning("Failed to register killscreen item '{ItemId}'.", definition.Id);
                 continue;
             }
 
@@ -277,7 +274,7 @@ public class Shop_Killscreen : BasePlugin
         if (itemType == ShopItemType.Consumable)
         {
             Core.Logger.LogWarning(
-                "Skipping item '{ItemId}' because smoke color items cannot use Type '{Type}'.",
+                "Skipping item '{ItemId}' because killscreen items cannot use Type '{Type}'.",
                 itemId,
                 itemType
             );

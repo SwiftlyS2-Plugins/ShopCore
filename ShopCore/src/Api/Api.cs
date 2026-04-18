@@ -1,8 +1,7 @@
 using System.Text.Json;
 using System.Reflection;
-using Cookies.Contract;
-using Economy.Contract;
 using FreeSql;
+using Microsoft.Extensions.Configuration;
 using ShopCore.Contract;
 using SwiftlyS2.Shared;
 using SwiftlyS2.Shared.Database;
@@ -289,23 +288,15 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
                 return new T();
             }
 
-            var rawText = File.ReadAllText(centralizedConfigPath);
-            using var document = JsonDocument.Parse(rawText, new JsonDocumentOptions
-            {
-                AllowTrailingCommas = true,
-                CommentHandling = JsonCommentHandling.Skip
-            });
+            var configRoot = new ConfigurationBuilder()
+                .AddJsonFile(centralizedConfigPath, optional: true, reloadOnChange: false)
+                .Build();
 
-            var payload = document.RootElement;
-            if (!string.IsNullOrWhiteSpace(sectionName) &&
-                payload.ValueKind == JsonValueKind.Object &&
-                payload.TryGetProperty(sectionName, out var sectionElement))
-            {
-                payload = sectionElement;
-            }
+            var result = string.IsNullOrWhiteSpace(sectionName)
+                ? configRoot.Get<T>()
+                : configRoot.GetSection(sectionName).Get<T>();
 
-            var config = JsonSerializer.Deserialize<T>(payload.GetRawText(), ConfigJsonOptions);
-            return config ?? new T();
+            return result ?? new T();
         }
         catch (Exception ex)
         {
