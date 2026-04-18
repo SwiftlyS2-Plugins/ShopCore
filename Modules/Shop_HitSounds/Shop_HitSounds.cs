@@ -48,7 +48,7 @@ public class Shop_HitSounds : BasePlugin
         }
         catch (Exception ex)
         {
-            Core.Logger.LogInformation(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
+            Core.Logger.LogError(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
         }
     }
 
@@ -60,10 +60,7 @@ public class Shop_HitSounds : BasePlugin
             return;
         }
 
-        if (!handlersRegistered)
-        {
-            RegisterItemsAndHandlers();
-        }
+        RegisterItemsAndHandlers();
     }
 
     public override void Load(bool hotReload)
@@ -246,34 +243,17 @@ public class Shop_HitSounds : BasePlugin
 
     private void OnItemSold(IPlayer player, ShopItemDefinition item, decimal creditedAmount)
     {
-        if (!registeredItemIds.Contains(item.Id) || shopApi == null)
+        if (!registeredItemIds.Contains(item.Id))
         {
             return;
-        }
-
-        // If sold while equipped, make sure any other enabled item becomes active source.
-        foreach (var otherItemId in registeredItemOrder)
-        {
-            if (shopApi.IsItemEnabled(player, otherItemId))
-            {
-                return;
-            }
         }
     }
 
     private void OnItemExpired(IPlayer player, ShopItemDefinition item)
     {
-        if (!registeredItemIds.Contains(item.Id) || shopApi == null)
+        if (!registeredItemIds.Contains(item.Id))
         {
             return;
-        }
-
-        foreach (var otherItemId in registeredItemOrder)
-        {
-            if (shopApi.IsItemEnabled(player, otherItemId))
-            {
-                return;
-            }
         }
     }
 

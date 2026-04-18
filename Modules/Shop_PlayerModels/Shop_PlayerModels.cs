@@ -1,4 +1,7 @@
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using ShopCore.Contract;
 using SwiftlyS2.Shared;
 using SwiftlyS2.Shared.Events;
@@ -22,9 +25,8 @@ namespace ShopCore;
 public class Shop_PlayerModels : BasePlugin
 {
     private const string ShopCoreInterfaceKey = "ShopCore.API.v2";
-    private const string ModulePluginId = "Shop_PlayerModels";
-    private const string TemplateFileName = "playermodels_config.jsonc";
-    private const string TemplateSectionName = "Main";
+    private const string ConfigFileName = "config.jsonc";
+    private const string ConfigSectionName = "Main";
     private const string DefaultCategory = "Visuals/Player Models";
     private const float PreviewDurationSeconds = 8f;
     private const float PreviewDistance = 75f;
@@ -40,6 +42,8 @@ public class Shop_PlayerModels : BasePlugin
     private readonly Dictionary<int, PlayerModelPreviewState> previewStateByPlayerId = new();
     private long previewSessionCounter;
 
+    private PlayerModelsModuleConfig? moduleConfig;
+    private ServiceProvider? serviceProvider;
     private PlayerModelsModuleSettings runtimeSettings = new();
 
     public Shop_PlayerModels(ISwiftlyCore core) : base(core)
@@ -61,7 +65,7 @@ public class Shop_PlayerModels : BasePlugin
         }
         catch (Exception ex)
         {
-            Core.Logger.LogInformation(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
+            Core.Logger.LogError(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
         }
     }
 
@@ -73,14 +77,12 @@ public class Shop_PlayerModels : BasePlugin
             return;
         }
 
-        if (!handlersRegistered)
-        {
-            RegisterItemsAndHandlers();
-        }
+        RegisterItemsAndHandlers();
     }
 
     public override void Load(bool hotReload)
     {
+        LoadModuleConfig();
         Core.Event.OnPrecacheResource += OnPrecacheResource;
 
         if (shopApi is not null && !handlersRegistered)
@@ -107,6 +109,9 @@ public class Shop_PlayerModels : BasePlugin
         }
 
         UnregisterItemsAndHandlers();
+        serviceProvider?.Dispose();
+        serviceProvider = null;
+        moduleConfig = null;
     }
 
     [GameEventHandler(HookMode.Post)]
@@ -163,12 +168,16 @@ public class Shop_PlayerModels : BasePlugin
 
         UnregisterItemsAndHandlers();
 
-        var moduleConfig = shopApi.LoadModuleConfig<PlayerModelsModuleConfig>(
-            ModulePluginId,
-            TemplateFileName,
-            TemplateSectionName
-        );
-        NormalizeConfig(moduleConfig);
+        if (moduleConfig == null)
+        {
+            LoadModuleConfig();
+        }
+
+        if (moduleConfig == null)
+        {
+            Core.Logger.LogWarning("PlayerModels config could not be loaded.");
+            return;
+        }
 
         runtimeSettings = moduleConfig.Settings;
 
@@ -181,14 +190,7 @@ public class Shop_PlayerModels : BasePlugin
             moduleConfig = CreateDefaultConfig();
             category = moduleConfig.Settings.Category;
             runtimeSettings = moduleConfig.Settings;
-
-            _ = shopApi.SaveModuleConfig(
-                ModulePluginId,
-                moduleConfig,
-                TemplateFileName,
-                TemplateSectionName,
-                overwrite: true
-            );
+            Core.Logger.LogWarning("PlayerModels config has no items. Using in-memory defaults.");
         }
 
         var registeredCount = 0;
@@ -222,6 +224,24 @@ public class Shop_PlayerModels : BasePlugin
             "Shop_PlayerModels initialized. RegisteredItems={RegisteredItems}",
             registeredCount
         );
+    }
+
+    private void LoadModuleConfig()
+    {
+        serviceProvider?.Dispose();
+        serviceProvider = null;
+
+        Core.Configuration.InitializeJsonWithModel<PlayerModelsModuleConfig>(ConfigFileName, ConfigSectionName)
+            .Configure(builder => builder.AddJsonFile(ConfigFileName, false, true));
+
+        ServiceCollection services = new();
+        services.AddSwiftly(Core)
+                .AddOptionsWithValidateOnStart<PlayerModelsModuleConfig>()
+                .BindConfiguration(ConfigSectionName);
+
+        serviceProvider = services.BuildServiceProvider();
+        moduleConfig = serviceProvider.GetRequiredService<IOptions<PlayerModelsModuleConfig>>().Value;
+        NormalizeConfig(moduleConfig);
     }
 
     private void UnregisterItemsAndHandlers()
