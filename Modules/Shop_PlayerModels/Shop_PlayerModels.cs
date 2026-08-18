@@ -19,7 +19,7 @@ namespace ShopCore;
     Id = "Shop_PlayerModels",
     Name = "Shop PlayerModels",
     Author = "T3Marius",
-    Version = "1.0.0",
+    Version = "1.0.1",
     Description = "ShopCore module with player model items"
 )]
 public class Shop_PlayerModels : BasePlugin
@@ -452,7 +452,28 @@ public class Shop_PlayerModels : BasePlugin
 
             try
             {
+                // Set initial model
                 pawn.SetModel(modelPath);
+
+                // AG2 Attachment and bone scale refresh
+                if (pawn.CBodyComponent?.SceneNode != null)
+                {
+                    pawn.AcceptInput("SetModel", modelPath);
+                }
+
+                // Force viewmodel and active weapon attachment update
+                if (pawn.WeaponServices != null)
+                {
+                    var activeWeaponHandle = pawn.WeaponServices.ActiveWeapon;
+                    if (activeWeaponHandle.IsValid)
+                    {
+                        var activeWeapon = activeWeaponHandle.Value;
+                        if (activeWeapon != null && activeWeapon.IsValid)
+                        {
+                            activeWeapon.AcceptInput("SetBodygroup", "0");
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -946,11 +967,11 @@ public class Shop_PlayerModels : BasePlugin
             : config.Settings.Category.Trim();
 
         config.Settings.DefaultTModel = string.IsNullOrWhiteSpace(config.Settings.DefaultTModel)
-            ? "characters/models/tm_phoenix/tm_phoenix.vmdl"
+            ? "agents/models/tm_phoenix/tm_phoenix.vmdl"
             : config.Settings.DefaultTModel.Trim();
 
         config.Settings.DefaultCtModel = string.IsNullOrWhiteSpace(config.Settings.DefaultCtModel)
-            ? "characters/models/ctm_sas/ctm_sas.vmdl"
+            ? "agents/models/ctm_sas/ctm_sas.vmdl"
             : config.Settings.DefaultCtModel.Trim();
     }
 
@@ -961,8 +982,8 @@ public class Shop_PlayerModels : BasePlugin
             Settings = new PlayerModelsModuleSettings
             {
                 Category = DefaultCategory,
-                DefaultTModel = "characters/models/tm_phoenix/tm_phoenix.vmdl",
-                DefaultCtModel = "characters/models/ctm_sas/ctm_sas.vmdl",
+                DefaultTModel = "agents/models/tm_phoenix/tm_phoenix.vmdl",
+                DefaultCtModel = "agents/models/ctm_sas/ctm_sas.vmdl",
                 RotatePreviewModel = true
             },
             Items =
@@ -972,7 +993,7 @@ public class Shop_PlayerModels : BasePlugin
                     Id = "model_frogman_hourly",
                     ModelName = "Frogman",
                     DisplayNameKey = "item.temporary.name",
-                    ModelPath = "characters/models/ctm_diver/ctm_diver_variantb.vmdl",
+                    ModelPath = "agents/models/ctm_diver/ctm_diver_variantb.vmdl",
                     Price = 3500,
                     SellPrice = 1750,
                     DurationSeconds = 3600,
@@ -986,7 +1007,7 @@ public class Shop_PlayerModels : BasePlugin
                     Id = "model_fbi_permanent",
                     ModelName = "FBI",
                     DisplayNameKey = "item.permanent.name",
-                    ModelPath = "characters/models/ctm_fbi/ctm_fbi_varianta.vmdl",
+                    ModelPath = "agents/models/ctm_fbi/ctm_fbi_varianta.vmdl",
                     Price = 9000,
                     SellPrice = 4500,
                     DurationSeconds = 0,
@@ -1021,8 +1042,8 @@ internal sealed class PlayerModelsModuleSettings
 {
     public bool UseCorePrefix { get; set; } = true;
     public string Category { get; set; } = "Visuals/Player Models";
-    public string DefaultTModel { get; set; } = "characters/models/tm_phoenix/tm_phoenix.vmdl";
-    public string DefaultCtModel { get; set; } = "characters/models/ctm_sas/ctm_sas.vmdl";
+    public string DefaultTModel { get; set; } = "agents/models/tm_phoenix/tm_phoenix.vmdl";
+    public string DefaultCtModel { get; set; } = "agents/models/ctm_sas/ctm_sas.vmdl";
     public bool RotatePreviewModel { get; set; } = true;
 }
 
