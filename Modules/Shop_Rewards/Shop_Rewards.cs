@@ -15,7 +15,7 @@ namespace ShopCore;
     Id = "Shop_Rewards",
     Name = "Shop Rewards",
     Author = "T3Marius",
-    Version = "1.0.0",
+    Version = "1.0.1",
     Description = "ShopCore module with rewards system"
 )]
 public class Shop_Rewards : BasePlugin
@@ -47,7 +47,7 @@ public class Shop_Rewards : BasePlugin
         }
         catch (Exception ex)
         {
-            Core.Logger.LogInformation(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
+            Core.Logger.LogError(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
         }
 
         TryLoadConfig();
@@ -60,7 +60,7 @@ public class Shop_Rewards : BasePlugin
 
     private void TryLoadConfig()
     {
-        if (shopApi is null)
+        if (shopApi == null)
         {
             return;
         }
@@ -77,7 +77,18 @@ public class Shop_Rewards : BasePlugin
     [GameEventHandler(HookMode.Pre)]
     public HookResult OnMatchEnd(EventCsWinPanelMatch e)
     {
-        if (shopApi is null)
+        if (shopApi == null)
+        {
+            return HookResult.Continue;
+        }
+
+        if (IsWarmupPeriod() && config.DisableInWarmup)
+        {
+            return HookResult.Continue;
+        }
+
+        List<IPlayer> onlinePlayers = Core.PlayerManager.GetAllValidPlayers().ToList();
+        if (onlinePlayers.Count < config.MinPlayers)
         {
             return HookResult.Continue;
         }
@@ -96,6 +107,37 @@ public class Shop_Rewards : BasePlugin
         return HookResult.Continue;
     }
 
+    [GameEventHandler(HookMode.Post)]
+    public HookResult OnRoundStart(EventRoundStart e)
+    {
+        if (shopApi == null)
+        {
+            return HookResult.Continue;
+        }
+
+        var onlinePlayers = Core.PlayerManager.GetAllValidPlayers().ToList();
+
+        if (IsWarmupPeriod() && config.DisableInWarmup)
+        {
+            foreach (var player in onlinePlayers)
+            {
+                NotifyPlayer(player, "module.disabled.warmup");
+            }
+            return HookResult.Continue;
+        }
+
+        if (onlinePlayers.Count < config.MinPlayers)
+        {
+            foreach (var player in onlinePlayers)
+            {
+                NotifyPlayer(player, "module.disabled", config.MinPlayers);
+            }
+            return HookResult.Continue;
+        }
+
+        return HookResult.Continue;
+    }
+
     [GameEventHandler(HookMode.Pre)]
     public HookResult OnRoundMvp(EventRoundMvp e)
     {
@@ -104,7 +146,18 @@ public class Shop_Rewards : BasePlugin
             return HookResult.Continue;
         }
 
-        if (shopApi is null)
+        if (shopApi == null)
+        {
+            return HookResult.Continue;
+        }
+
+        if (IsWarmupPeriod() && config.DisableInWarmup)
+        {
+            return HookResult.Continue;
+        }
+
+        List<IPlayer> onlinePlayers = Core.PlayerManager.GetAllValidPlayers().ToList();
+        if (onlinePlayers.Count < config.MinPlayers)
         {
             return HookResult.Continue;
         }
@@ -123,7 +176,18 @@ public class Shop_Rewards : BasePlugin
     {
         lastRoundWinnerTeam = e.Winner;
 
-        if (shopApi is null)
+        if (shopApi == null)
+        {
+            return HookResult.Continue;
+        }
+
+        if (IsWarmupPeriod() && config.DisableInWarmup)
+        {
+            return HookResult.Continue;
+        }
+
+        List<IPlayer> onlinePlayers = Core.PlayerManager.GetAllValidPlayers().ToList();
+        if (onlinePlayers.Count < config.MinPlayers)
         {
             return HookResult.Continue;
         }
@@ -145,7 +209,18 @@ public class Shop_Rewards : BasePlugin
     [GameEventHandler(HookMode.Pre)]
     public HookResult OnPlayerDeath(EventPlayerDeath e)
     {
-        if (shopApi is null)
+        if (shopApi == null)
+        {
+            return HookResult.Continue;
+        }
+
+        if (IsWarmupPeriod() && config.DisableInWarmup)
+        {
+            return HookResult.Continue;
+        }
+
+        List<IPlayer> onlinePlayers = Core.PlayerManager.GetAllValidPlayers().ToList();
+        if (onlinePlayers.Count < config.MinPlayers)
         {
             return HookResult.Continue;
         }
@@ -154,7 +229,7 @@ public class Shop_Rewards : BasePlugin
 
         if (e.AttackerPlayer is IPlayer attacker &&
             IsRewardablePlayer(attacker) &&
-            (victim is null || attacker.PlayerID != victim.PlayerID))
+            (victim == null || attacker.PlayerID != victim.PlayerID))
         {
             if (config.Kill > 0)
             {
@@ -172,7 +247,7 @@ public class Shop_Rewards : BasePlugin
         if (config.Assist > 0 &&
             e.AssisterPlayer is IPlayer assister &&
             IsRewardablePlayer(assister) &&
-            (victim is null || assister.PlayerID != victim.PlayerID))
+            (victim == null || assister.PlayerID != victim.PlayerID))
         {
             shopApi.AddCredits(assister, config.Assist);
             SendRewardMessage(assister, "reward.assist", config.Assist);
@@ -216,25 +291,43 @@ public class Shop_Rewards : BasePlugin
         return true;
     }
 
-    private void SendRewardMessage(IPlayer player, string key, int rewardConfig)
+    private string GetPrefix(IPlayer player)
     {
         var loc = Core.Translation.GetPlayerLocalizer(player);
-        var prefix = loc["shop.prefix"];
         if (config.UseCorePrefix)
         {
             var corePrefix = shopApi?.GetShopPrefix(player);
             if (!string.IsNullOrWhiteSpace(corePrefix))
             {
-                prefix = corePrefix;
+                return corePrefix;
             }
         }
 
-        player.SendChat($"{prefix} {loc[key, rewardConfig]}");
+        return loc["shop.prefix"];
+    }
+
+    private void NotifyPlayer(IPlayer player, string key, params object[] args)
+    {
+        var loc = Core.Translation.GetPlayerLocalizer(player);
+        var msg = args.Length == 0 ? loc[key] : loc[key, args];
+        player.SendChat($"{GetPrefix(player)} {msg}");
+    }
+
+    private void SendRewardMessage(IPlayer player, string key, int rewardConfig)
+    {
+        var loc = Core.Translation.GetPlayerLocalizer(player);
+        player.SendChat($"{GetPrefix(player)} {loc[key, rewardConfig]}");
+    }
+    private bool IsWarmupPeriod()
+    {
+        return Core.EntitySystem.GetGameRules()?.WarmupPeriod ?? false;
     }
 }
 
 internal sealed class RewardsModuleConfig
 {
+    public int MinPlayers { get; set; } = 4;
+    public bool DisableInWarmup { get; set; } = true;
     public bool UseCorePrefix { get; set; } = true;
     public int Kill { get; set; } = 2;
     public int Headshot { get; set; } = 5;

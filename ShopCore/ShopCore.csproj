@@ -19,6 +19,7 @@
     <PackageReference Include="SwiftlyS2.CS2" Version="1.1.4" ExcludeAssets="runtime" PrivateAssets="all" />
     <PackageReference Include="FreeSql" Version="3.5.100" />
     <PackageReference Include="FreeSql.Provider.Sqlite" Version="3.5.100" />
+    <PackageReference Include="FreeSql.Provider.MySql" Version="3.5.100"/>
     <PackageReference Include="FreeSql.Provider.MySqlConnector" Version="3.5.100" />
   </ItemGroup>
 
@@ -32,7 +33,7 @@
       <Private>false</Private>
     </Reference>
   </ItemGroup>
-  
+
   <ItemGroup>
     <Reference Include="Economy.Contract">
       <HintPath>resources\exports\Economy.Contract.dll</HintPath>

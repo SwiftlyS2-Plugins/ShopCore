@@ -60,7 +60,7 @@ public class Shop_DecoyTeleport : BasePlugin
 
     public override void OnSharedInterfaceInjected(IInterfaceManager interfaceManager)
     {
-        if (shopApi is null)
+        if (shopApi == null)
         {
             Core.Logger.LogWarning("ShopCore API is not available. Decoy Teleport items will not be registered.");
             return;
@@ -76,15 +76,12 @@ public class Shop_DecoyTeleport : BasePlugin
 
     private void InitializeModule()
     {
-        if (shopApi is null)
+        if (shopApi == null)
         {
             return;
         }
 
-        if (handlersRegistered)
-        {
-            return;
-        }
+        UnregisterHandlers();
 
         Config = shopApi.LoadModuleConfig<DecoyModuleConfig>(
             ModulePluginId,
@@ -115,7 +112,8 @@ public class Shop_DecoyTeleport : BasePlugin
             IsEquipable: false,
             Duration: null,
             Enabled: Config.Decoy.Enabled,
-            AllowPreview: false
+            AllowPreview: false,
+            DisplayNameResolver: player => player == null ? Core.Localizer["item.name"] : Core.Translation.GetPlayerLocalizer(player)["item.name"]
         ));
 
         if (!itemRegistered)
@@ -160,7 +158,7 @@ public class Shop_DecoyTeleport : BasePlugin
 
     private void OnItemPurchased(IPlayer player, ShopItemDefinition item)
     {
-        if (player is null || !IsTargetItem(item.Id))
+        if (player == null || !IsTargetItem(item.Id))
             return;
 
         Core.Scheduler.NextWorldUpdate(() =>
@@ -171,7 +169,7 @@ public class Shop_DecoyTeleport : BasePlugin
             }
 
             var given = player.PlayerPawn?.ItemServices?.GiveItem<CBaseEntity>("weapon_decoy");
-            if (given is null || !given.IsValid)
+            if (given == null || !given.IsValid)
             {
                 SendLocalized(player, "error.give_failed");
                 return;
@@ -186,7 +184,7 @@ public class Shop_DecoyTeleport : BasePlugin
     public HookResult OnDecoyStarted(EventDecoyStarted e)
     {
         IPlayer? thrower = e.UserIdPlayer;
-        if (thrower is null || !thrower.IsValid || thrower.IsFakeClient)
+        if (thrower == null || !thrower.IsValid || thrower.IsFakeClient)
             return HookResult.Continue;
 
         if (!TryConsumeArmed(thrower.PlayerID))
@@ -221,7 +219,7 @@ public class Shop_DecoyTeleport : BasePlugin
     public HookResult OnPlayerDisconnect(EventPlayerDisconnect e)
     {
         IPlayer? player = e.UserIdPlayer;
-        if (player is null)
+        if (player == null)
             return HookResult.Continue;
 
         SetArmed(player.PlayerID, false);
@@ -233,7 +231,7 @@ public class Shop_DecoyTeleport : BasePlugin
     public HookResult OnPlayerDeath(EventPlayerDeath e)
     {
         IPlayer? player = e.UserIdPlayer;
-        if (player is null || player.IsFakeClient || !player.IsValid)
+        if (player == null || player.IsFakeClient || !player.IsValid)
             return HookResult.Continue;
 
         if (HasArmedDecoy(player.PlayerID))
@@ -257,21 +255,28 @@ public class Shop_DecoyTeleport : BasePlugin
 
     public override void Unload()
     {
-        if (shopApi is not null)
-        {
-            shopApi.OnItemPurchased -= OnItemPurchased;
-            shopApi.OnBeforeItemPurchase -= OnBeforeItemPurchase;
-
-            if (!string.IsNullOrWhiteSpace(Config.Decoy.Id))
-            {
-                _ = shopApi.UnregisterItem(Config.Decoy.Id);
-            }
-        }
+        UnregisterHandlers();
 
         lock (stateSync)
         {
             armedPlayers.Clear();
             cooldownUntilUnixSeconds.Clear();
+        }
+    }
+
+    private void UnregisterHandlers()
+    {
+        if (!handlersRegistered || shopApi is null)
+        {
+            return;
+        }
+
+        shopApi.OnItemPurchased -= OnItemPurchased;
+        shopApi.OnBeforeItemPurchase -= OnBeforeItemPurchase;
+
+        if (!string.IsNullOrWhiteSpace(Config.Decoy.Id))
+        {
+            _ = shopApi.UnregisterItem(Config.Decoy.Id);
         }
 
         handlersRegistered = false;
@@ -385,7 +390,7 @@ public class Shop_DecoyTeleport : BasePlugin
     {
         Core.Scheduler.NextWorldUpdate(() =>
         {
-            if (player is null || !player.IsValid)
+            if (player == null || !player.IsValid)
             {
                 return;
             }
@@ -477,4 +482,3 @@ internal sealed class DecoyTeleportItemTemplate
     public bool Enabled { get; set; } = true;
     public bool CanBeSold { get; set; } = false;
 }
-

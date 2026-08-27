@@ -50,22 +50,19 @@ public class Shop_SmokeColor : BasePlugin
         }
         catch (Exception ex)
         {
-            Core.Logger.LogInformation(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
+            Core.Logger.LogError(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
         }
     }
 
     public override void OnSharedInterfaceInjected(IInterfaceManager interfaceManager)
     {
-        if (shopApi is null)
+        if (shopApi == null)
         {
             Core.Logger.LogWarning("ShopCore API is not available. SmokeColor items will not be registered.");
             return;
         }
 
-        if (!handlersRegistered)
-        {
-            RegisterItemsAndHandlers();
-        }
+        RegisterItemsAndHandlers();
     }
 
     public override void Load(bool hotReload)
@@ -94,7 +91,7 @@ public class Shop_SmokeColor : BasePlugin
 
     private void OnEntityCreated(IOnEntityCreatedEvent e)
     {
-        if (!handlersRegistered || shopApi is null)
+        if (!handlersRegistered || shopApi == null)
         {
             return;
         }
@@ -110,7 +107,7 @@ public class Shop_SmokeColor : BasePlugin
 
     private void TryApplySmokeColor(uint entityIndex)
     {
-        if (shopApi is null)
+        if (shopApi == null)
         {
             return;
         }
@@ -118,7 +115,7 @@ public class Shop_SmokeColor : BasePlugin
         try
         {
             var smoke = Core.EntitySystem.GetEntityByIndex<CSmokeGrenadeProjectile>(entityIndex);
-            if (smoke is null || !smoke.IsValid)
+            if (smoke == null || !smoke.IsValid)
             {
                 return;
             }
@@ -153,7 +150,7 @@ public class Shop_SmokeColor : BasePlugin
     {
         color = Vector.Zero;
 
-        if (shopApi is null)
+        if (shopApi == null)
         {
             return false;
         }
@@ -179,7 +176,7 @@ public class Shop_SmokeColor : BasePlugin
 
     private void RegisterItemsAndHandlers()
     {
-        if (shopApi is null)
+        if (shopApi == null)
         {
             return;
         }
@@ -244,7 +241,7 @@ public class Shop_SmokeColor : BasePlugin
 
     private void UnregisterItemsAndHandlers()
     {
-        if (!handlersRegistered || shopApi is null)
+        if (!handlersRegistered || shopApi == null)
         {
             return;
         }
@@ -265,7 +262,7 @@ public class Shop_SmokeColor : BasePlugin
 
     private void OnItemToggled(IPlayer player, ShopItemDefinition item, bool enabled)
     {
-        if (!enabled || shopApi is null || !registeredItemIds.Contains(item.Id))
+        if (!enabled || shopApi == null || !registeredItemIds.Contains(item.Id))
         {
             return;
         }
@@ -318,7 +315,7 @@ public class Shop_SmokeColor : BasePlugin
 
             var loc = Core.Translation.GetPlayerLocalizer(player);
             player.SendChat(
-                $"{GetPrefix(player)} {loc["preview.started", item.DisplayName, (int)PreviewDurationSeconds]}"
+                $"{GetPrefix(player)} {loc["preview.started", shopApi?.GetItemDisplayName(player, item) ?? item.DisplayName, (int)PreviewDurationSeconds]}"
             );
         });
     }
@@ -437,7 +434,8 @@ public class Shop_SmokeColor : BasePlugin
             Type: itemType,
             Team: team,
             Enabled: itemTemplate.Enabled,
-            CanBeSold: itemTemplate.CanBeSold
+            CanBeSold: itemTemplate.CanBeSold,
+            DisplayNameResolver: player => ResolveDisplayName(Core, itemTemplate, player)
         );
         return true;
     }
@@ -451,7 +449,7 @@ public class Shop_SmokeColor : BasePlugin
     {
         color = Vector.Zero;
 
-        if (itemTemplate.Color is null || itemTemplate.Color.Count < 3)
+        if (itemTemplate.Color == null || itemTemplate.Color.Count < 3)
         {
             return false;
         }
@@ -603,9 +601,10 @@ public class Shop_SmokeColor : BasePlugin
             ]
         };
     }
-    private static string ResolveDisplayName(ISwiftlyCore Core, SmokeColorItemTemplate item)
+    private static string ResolveDisplayName(ISwiftlyCore Core, SmokeColorItemTemplate item, IPlayer? player = null)
     {
         var key = item.DisplayNameKey?.Trim();
+        var localizer = player == null ? Core.Localizer : Core.Translation.GetPlayerLocalizer(player);
 
         if (string.IsNullOrWhiteSpace(key))
         {
@@ -614,10 +613,10 @@ public class Shop_SmokeColor : BasePlugin
 
         if (item.Type.Equals("Permanent", StringComparison.OrdinalIgnoreCase))
         {
-            return Core.Localizer[key, item.ColorName];
+            return localizer[key, item.ColorName];
         }
 
-        return Core.Localizer[key, item.ColorName, FormatDuration(item.DurationSeconds)];
+        return localizer[key, item.ColorName, FormatDuration(item.DurationSeconds)];
     }
     private static string FormatDuration(int totalSeconds)
     {
@@ -676,4 +675,3 @@ internal sealed class SmokeColorItemTemplate
 }
 
 internal readonly record struct SmokePreviewState(Vector Color, float ExpiresAt);
-

@@ -1,4 +1,7 @@
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using ShopCore.Contract;
 using SwiftlyS2.Shared;
 using SwiftlyS2.Shared.Events;
@@ -16,15 +19,14 @@ namespace ShopCore;
     Id = "Shop_PlayerModels",
     Name = "Shop PlayerModels",
     Author = "T3Marius",
-    Version = "1.0.0",
+    Version = "1.0.1",
     Description = "ShopCore module with player model items"
 )]
 public class Shop_PlayerModels : BasePlugin
 {
     private const string ShopCoreInterfaceKey = "ShopCore.API.v2";
-    private const string ModulePluginId = "Shop_PlayerModels";
-    private const string TemplateFileName = "playermodels_config.jsonc";
-    private const string TemplateSectionName = "Main";
+    private const string ConfigFileName = "config.jsonc";
+    private const string ConfigSectionName = "Main";
     private const string DefaultCategory = "Visuals/Player Models";
     private const float PreviewDurationSeconds = 8f;
     private const float PreviewDistance = 75f;
@@ -40,6 +42,8 @@ public class Shop_PlayerModels : BasePlugin
     private readonly Dictionary<int, PlayerModelPreviewState> previewStateByPlayerId = new();
     private long previewSessionCounter;
 
+    private PlayerModelsModuleConfig? moduleConfig;
+    private ServiceProvider? serviceProvider;
     private PlayerModelsModuleSettings runtimeSettings = new();
 
     public Shop_PlayerModels(ISwiftlyCore core) : base(core)
@@ -61,26 +65,24 @@ public class Shop_PlayerModels : BasePlugin
         }
         catch (Exception ex)
         {
-            Core.Logger.LogInformation(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
+            Core.Logger.LogError(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
         }
     }
 
     public override void OnSharedInterfaceInjected(IInterfaceManager interfaceManager)
     {
-        if (shopApi is null)
+        if (shopApi == null)
         {
             Core.Logger.LogWarning("ShopCore API is not available. PlayerModels items will not be registered.");
             return;
         }
 
-        if (!handlersRegistered)
-        {
-            RegisterItemsAndHandlers();
-        }
+        RegisterItemsAndHandlers();
     }
 
     public override void Load(bool hotReload)
     {
+        LoadModuleConfig();
         Core.Event.OnPrecacheResource += OnPrecacheResource;
 
         if (shopApi is not null && !handlersRegistered)
@@ -107,20 +109,23 @@ public class Shop_PlayerModels : BasePlugin
         }
 
         UnregisterItemsAndHandlers();
+        serviceProvider?.Dispose();
+        serviceProvider = null;
+        moduleConfig = null;
     }
 
     [GameEventHandler(HookMode.Post)]
     public HookResult OnPlayerSpawn(EventPlayerSpawn e)
     {
         var player = Core.PlayerManager.GetPlayer(e.UserId);
-        if (player is null || !player.IsValid || player.IsFakeClient)
+        if (player == null || !player.IsValid || player.IsFakeClient)
         {
             return HookResult.Continue;
         }
 
         Core.Scheduler.NextWorldUpdate(() =>
         {
-            if (player is null || !player.IsValid || player.IsFakeClient)
+            if (player == null || !player.IsValid || player.IsFakeClient)
             {
                 return;
             }
@@ -156,19 +161,23 @@ public class Shop_PlayerModels : BasePlugin
 
     private void RegisterItemsAndHandlers()
     {
-        if (shopApi is null)
+        if (shopApi == null)
         {
             return;
         }
 
         UnregisterItemsAndHandlers();
 
-        var moduleConfig = shopApi.LoadModuleConfig<PlayerModelsModuleConfig>(
-            ModulePluginId,
-            TemplateFileName,
-            TemplateSectionName
-        );
-        NormalizeConfig(moduleConfig);
+        if (moduleConfig == null)
+        {
+            LoadModuleConfig();
+        }
+
+        if (moduleConfig == null)
+        {
+            Core.Logger.LogWarning("PlayerModels config could not be loaded.");
+            return;
+        }
 
         runtimeSettings = moduleConfig.Settings;
 
@@ -181,14 +190,7 @@ public class Shop_PlayerModels : BasePlugin
             moduleConfig = CreateDefaultConfig();
             category = moduleConfig.Settings.Category;
             runtimeSettings = moduleConfig.Settings;
-
-            _ = shopApi.SaveModuleConfig(
-                ModulePluginId,
-                moduleConfig,
-                TemplateFileName,
-                TemplateSectionName,
-                overwrite: true
-            );
+            Core.Logger.LogWarning("PlayerModels config has no items. Using in-memory defaults.");
         }
 
         var registeredCount = 0;
@@ -224,9 +226,27 @@ public class Shop_PlayerModels : BasePlugin
         );
     }
 
+    private void LoadModuleConfig()
+    {
+        serviceProvider?.Dispose();
+        serviceProvider = null;
+
+        Core.Configuration.InitializeJsonWithModel<PlayerModelsModuleConfig>(ConfigFileName, ConfigSectionName)
+            .Configure(builder => builder.AddJsonFile(ConfigFileName, false, true));
+
+        ServiceCollection services = new();
+        services.AddSwiftly(Core)
+                .AddOptionsWithValidateOnStart<PlayerModelsModuleConfig>()
+                .BindConfiguration(ConfigSectionName);
+
+        serviceProvider = services.BuildServiceProvider();
+        moduleConfig = serviceProvider.GetRequiredService<IOptions<PlayerModelsModuleConfig>>().Value;
+        NormalizeConfig(moduleConfig);
+    }
+
     private void UnregisterItemsAndHandlers()
     {
-        if (!handlersRegistered || shopApi is null)
+        if (!handlersRegistered || shopApi == null)
         {
             return;
         }
@@ -273,12 +293,12 @@ public class Shop_PlayerModels : BasePlugin
 
         var player = context.Player;
         var loc = Core.Translation.GetPlayerLocalizer(player);
-        context.Block($"{GetPrefix(player)} {loc["error.permission", context.Item.DisplayName, runtime.RequiredPermission]}");
+        context.Block($"{GetPrefix(player)} {loc["error.permission", shopApi?.GetItemDisplayName(player, context.Item) ?? context.Item.DisplayName, runtime.RequiredPermission]}");
     }
 
     private void OnItemToggled(IPlayer player, ShopItemDefinition item, bool enabled)
     {
-        if (shopApi is null || !registeredItemIds.Contains(item.Id))
+        if (shopApi == null || !registeredItemIds.Contains(item.Id))
         {
             return;
         }
@@ -336,12 +356,12 @@ public class Shop_PlayerModels : BasePlugin
             return;
         }
 
-        SpawnPreviewModel(player, runtime.ModelPath, item.DisplayName);
+        SpawnPreviewModel(player, runtime.ModelPath, shopApi?.GetItemDisplayName(player, item) ?? item.DisplayName);
     }
 
     private void ApplyConfiguredOrDefaultModel(IPlayer player)
     {
-        if (shopApi is null || player is null || !player.IsValid || player.IsFakeClient)
+        if (shopApi == null || player == null || !player.IsValid || player.IsFakeClient)
         {
             return;
         }
@@ -359,7 +379,7 @@ public class Shop_PlayerModels : BasePlugin
     {
         runtime = default;
 
-        if (shopApi is null)
+        if (shopApi == null)
         {
             return false;
         }
@@ -419,20 +439,41 @@ public class Shop_PlayerModels : BasePlugin
 
         Core.Scheduler.NextWorldUpdate(() =>
         {
-            if (player is null || !player.IsValid || player.IsFakeClient)
+            if (player == null || !player.IsValid || player.IsFakeClient)
             {
                 return;
             }
 
             var pawn = player.PlayerPawn;
-            if (pawn is null || !pawn.IsValid || pawn.LifeState != (int)LifeState_t.LIFE_ALIVE)
+            if (pawn == null || !pawn.IsValid || pawn.LifeState != (int)LifeState_t.LIFE_ALIVE)
             {
                 return;
             }
 
             try
             {
+                // Set initial model
                 pawn.SetModel(modelPath);
+
+                // AG2 Attachment and bone scale refresh
+                if (pawn.CBodyComponent?.SceneNode != null)
+                {
+                    pawn.AcceptInput("SetModel", modelPath);
+                }
+
+                // Force viewmodel and active weapon attachment update
+                if (pawn.WeaponServices != null)
+                {
+                    var activeWeaponHandle = pawn.WeaponServices.ActiveWeapon;
+                    if (activeWeaponHandle.IsValid)
+                    {
+                        var activeWeapon = activeWeaponHandle.Value;
+                        if (activeWeapon != null && activeWeapon.IsValid)
+                        {
+                            activeWeapon.AcceptInput("SetBodygroup", "0");
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -477,7 +518,7 @@ public class Shop_PlayerModels : BasePlugin
                 var previewRotation = new QAngle(rotation.X, initialYaw, rotation.Z);
 
                 preview = Core.EntitySystem.CreateEntityByDesignerName<CDynamicProp>("prop_dynamic_override");
-                if (preview is null || !preview.IsValid)
+                if (preview == null || !preview.IsValid)
                 {
                     return;
                 }
@@ -638,7 +679,7 @@ public class Shop_PlayerModels : BasePlugin
 
     private void ConfigurePreviewVisibility(CDynamicProp preview, IPlayer previewOwner)
     {
-        if (preview is null || !preview.IsValid || previewOwner is null || !previewOwner.IsValid)
+        if (preview == null || !preview.IsValid || previewOwner == null || !previewOwner.IsValid)
         {
             return;
         }
@@ -662,7 +703,7 @@ public class Shop_PlayerModels : BasePlugin
 
     private void ConfigurePreviewGlow(CDynamicProp preview)
     {
-        if (preview is null || !preview.IsValid)
+        if (preview == null || !preview.IsValid)
         {
             return;
         }
@@ -723,7 +764,7 @@ public class Shop_PlayerModels : BasePlugin
                         return;
                     }
 
-                    if (preview is null || !preview.IsValid)
+                    if (preview == null || !preview.IsValid)
                     {
                         return;
                     }
@@ -751,13 +792,13 @@ public class Shop_PlayerModels : BasePlugin
     {
         pawn = null!;
 
-        if (player is null || !player.IsValid || player.IsFakeClient)
+        if (player == null || !player.IsValid || player.IsFakeClient)
         {
             return false;
         }
 
         var playerPawn = player.PlayerPawn;
-        if (playerPawn is null || !playerPawn.IsValid || playerPawn.LifeState != (int)LifeState_t.LIFE_ALIVE)
+        if (playerPawn == null || !playerPawn.IsValid || playerPawn.LifeState != (int)LifeState_t.LIFE_ALIVE)
         {
             return false;
         }
@@ -845,7 +886,8 @@ public class Shop_PlayerModels : BasePlugin
             Type: itemType,
             Team: team,
             Enabled: itemTemplate.Enabled,
-            CanBeSold: itemTemplate.CanBeSold
+            CanBeSold: itemTemplate.CanBeSold,
+            DisplayNameResolver: player => ResolveDisplayName(itemTemplate, player)
         );
 
         runtime = new PlayerModelItemRuntime(
@@ -857,14 +899,15 @@ public class Shop_PlayerModels : BasePlugin
         return true;
     }
 
-    private string ResolveDisplayName(PlayerModelItemTemplate itemTemplate)
+    private string ResolveDisplayName(PlayerModelItemTemplate itemTemplate, IPlayer? player = null)
     {
         if (!string.IsNullOrWhiteSpace(itemTemplate.DisplayNameKey))
         {
             var key = itemTemplate.DisplayNameKey.Trim();
+            var localizer = player == null ? Core.Localizer : Core.Translation.GetPlayerLocalizer(player);
             var localized = itemTemplate.Type.Equals(nameof(ShopItemType.Permanent), StringComparison.OrdinalIgnoreCase)
-                ? Core.Localizer[key, itemTemplate.ModelName]
-                : Core.Localizer[key, itemTemplate.ModelName, FormatDuration(itemTemplate.DurationSeconds)];
+                ? localizer[key, itemTemplate.ModelName]
+                : localizer[key, itemTemplate.ModelName, FormatDuration(itemTemplate.DurationSeconds)];
 
             if (!string.Equals(localized, key, StringComparison.Ordinal))
             {
@@ -898,7 +941,7 @@ public class Shop_PlayerModels : BasePlugin
             var hours = (int)ts.TotalHours;
             var minutes = ts.Minutes;
             return minutes > 0
-                ? $"{hours} Hour{(hours == 1 ? "" : "s")} {minutes} Minute{(minutes == 1 ? "" : "s")}" 
+                ? $"{hours} Hour{(hours == 1 ? "" : "s")} {minutes} Minute{(minutes == 1 ? "" : "s")}"
                 : $"{hours} Hour{(hours == 1 ? "" : "s")}";
         }
 
@@ -907,7 +950,7 @@ public class Shop_PlayerModels : BasePlugin
             var minutes = (int)ts.TotalMinutes;
             var seconds = ts.Seconds;
             return seconds > 0
-                ? $"{minutes} Minute{(minutes == 1 ? "" : "s")} {seconds} Second{(seconds == 1 ? "" : "s")}" 
+                ? $"{minutes} Minute{(minutes == 1 ? "" : "s")} {seconds} Second{(seconds == 1 ? "" : "s")}"
                 : $"{minutes} Minute{(minutes == 1 ? "" : "s")}";
         }
 
@@ -924,11 +967,11 @@ public class Shop_PlayerModels : BasePlugin
             : config.Settings.Category.Trim();
 
         config.Settings.DefaultTModel = string.IsNullOrWhiteSpace(config.Settings.DefaultTModel)
-            ? "characters/models/tm_phoenix/tm_phoenix.vmdl"
+            ? "agents/models/tm_phoenix/tm_phoenix.vmdl"
             : config.Settings.DefaultTModel.Trim();
 
         config.Settings.DefaultCtModel = string.IsNullOrWhiteSpace(config.Settings.DefaultCtModel)
-            ? "characters/models/ctm_sas/ctm_sas.vmdl"
+            ? "agents/models/ctm_sas/ctm_sas.vmdl"
             : config.Settings.DefaultCtModel.Trim();
     }
 
@@ -939,8 +982,8 @@ public class Shop_PlayerModels : BasePlugin
             Settings = new PlayerModelsModuleSettings
             {
                 Category = DefaultCategory,
-                DefaultTModel = "characters/models/tm_phoenix/tm_phoenix.vmdl",
-                DefaultCtModel = "characters/models/ctm_sas/ctm_sas.vmdl",
+                DefaultTModel = "agents/models/tm_phoenix/tm_phoenix.vmdl",
+                DefaultCtModel = "agents/models/ctm_sas/ctm_sas.vmdl",
                 RotatePreviewModel = true
             },
             Items =
@@ -950,7 +993,7 @@ public class Shop_PlayerModels : BasePlugin
                     Id = "model_frogman_hourly",
                     ModelName = "Frogman",
                     DisplayNameKey = "item.temporary.name",
-                    ModelPath = "characters/models/ctm_diver/ctm_diver_variantb.vmdl",
+                    ModelPath = "agents/models/ctm_diver/ctm_diver_variantb.vmdl",
                     Price = 3500,
                     SellPrice = 1750,
                     DurationSeconds = 3600,
@@ -964,7 +1007,7 @@ public class Shop_PlayerModels : BasePlugin
                     Id = "model_fbi_permanent",
                     ModelName = "FBI",
                     DisplayNameKey = "item.permanent.name",
-                    ModelPath = "characters/models/ctm_fbi/ctm_fbi_varianta.vmdl",
+                    ModelPath = "agents/models/ctm_fbi/ctm_fbi_varianta.vmdl",
                     Price = 9000,
                     SellPrice = 4500,
                     DurationSeconds = 0,
@@ -999,8 +1042,8 @@ internal sealed class PlayerModelsModuleSettings
 {
     public bool UseCorePrefix { get; set; } = true;
     public string Category { get; set; } = "Visuals/Player Models";
-    public string DefaultTModel { get; set; } = "characters/models/tm_phoenix/tm_phoenix.vmdl";
-    public string DefaultCtModel { get; set; } = "characters/models/ctm_sas/ctm_sas.vmdl";
+    public string DefaultTModel { get; set; } = "agents/models/tm_phoenix/tm_phoenix.vmdl";
+    public string DefaultCtModel { get; set; } = "agents/models/ctm_sas/ctm_sas.vmdl";
     public bool RotatePreviewModel { get; set; } = true;
 }
 

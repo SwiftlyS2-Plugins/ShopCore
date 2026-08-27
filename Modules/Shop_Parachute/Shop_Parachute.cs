@@ -65,22 +65,19 @@ public class Shop_Parachute : BasePlugin
         }
         catch (Exception ex)
         {
-            Core.Logger.LogInformation(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
+            Core.Logger.LogError(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
         }
     }
 
     public override void OnSharedInterfaceInjected(IInterfaceManager interfaceManager)
     {
-        if (shopApi is null)
+        if (shopApi == null)
         {
             Core.Logger.LogWarning("ShopCore API is not available. Parachute items will not be registered.");
             return;
         }
 
-        if (!handlersRegistered)
-        {
-            RegisterItemsAndHandlers();
-        }
+        RegisterItemsAndHandlers();
     }
 
     public override void Load(bool hotReload)
@@ -131,7 +128,7 @@ public class Shop_Parachute : BasePlugin
     public HookResult OnPlayerConnectFull(EventPlayerConnectFull e)
     {
         var player = Core.PlayerManager.GetPlayer(e.UserId);
-        if (player is null || !player.IsValid || player.IsFakeClient)
+        if (player == null || !player.IsValid || player.IsFakeClient)
         {
             return HookResult.Continue;
         }
@@ -144,7 +141,7 @@ public class Shop_Parachute : BasePlugin
     public HookResult OnGameEventPlayerDisconnect(EventPlayerDisconnect e)
     {
         var player = Core.PlayerManager.GetPlayer(e.UserId);
-        if (player is null || !player.IsValid)
+        if (player == null || !player.IsValid)
         {
             return HookResult.Continue;
         }
@@ -157,7 +154,7 @@ public class Shop_Parachute : BasePlugin
     public HookResult OnPlayerSpawn(EventPlayerSpawn e)
     {
         var player = Core.PlayerManager.GetPlayer(e.UserId);
-        if (player is null || !player.IsValid || player.IsFakeClient)
+        if (player == null || !player.IsValid || player.IsFakeClient)
         {
             return HookResult.Continue;
         }
@@ -171,7 +168,7 @@ public class Shop_Parachute : BasePlugin
     public HookResult OnPlayerDeath(EventPlayerDeath e)
     {
         var player = Core.PlayerManager.GetPlayer(e.UserId);
-        if (player is null || !player.IsValid || player.IsFakeClient)
+        if (player == null || !player.IsValid || player.IsFakeClient)
         {
             return HookResult.Continue;
         }
@@ -185,7 +182,7 @@ public class Shop_Parachute : BasePlugin
         previewRuntimeByPlayerId.Remove(e.PlayerId);
 
         var player = Core.PlayerManager.GetPlayer(e.PlayerId);
-        if (player is null)
+        if (player == null)
         {
             if (e.PlayerId >= 0 && e.PlayerId < MaxPlayers)
             {
@@ -201,7 +198,7 @@ public class Shop_Parachute : BasePlugin
 
     private void OnTick()
     {
-        if (shopApi is null || !handlersRegistered || registeredItemOrder.Count == 0)
+        if (shopApi == null || !handlersRegistered || registeredItemOrder.Count == 0)
         {
             return;
         }
@@ -233,7 +230,7 @@ public class Shop_Parachute : BasePlugin
 
     private void RegisterItemsAndHandlers()
     {
-        if (shopApi is null)
+        if (shopApi == null)
         {
             return;
         }
@@ -301,7 +298,7 @@ public class Shop_Parachute : BasePlugin
 
     private void UnregisterItemsAndHandlers()
     {
-        if (!handlersRegistered || shopApi is null)
+        if (!handlersRegistered || shopApi == null)
         {
             return;
         }
@@ -347,12 +344,12 @@ public class Shop_Parachute : BasePlugin
 
         var player = context.Player;
         var loc = Core.Translation.GetPlayerLocalizer(player);
-        context.Block($"{GetPrefix(player)} {loc["error.permission", context.Item.DisplayName, runtime.RequiredPermission]}");
+        context.Block($"{GetPrefix(player)} {loc["error.permission", shopApi?.GetItemDisplayName(player, context.Item) ?? context.Item.DisplayName, runtime.RequiredPermission]}");
     }
 
     private void OnItemToggled(IPlayer player, ShopItemDefinition item, bool enabled)
     {
-        if (!registeredItemIds.Contains(item.Id) || shopApi is null)
+        if (!registeredItemIds.Contains(item.Id) || shopApi == null)
         {
             return;
         }
@@ -426,7 +423,7 @@ public class Shop_Parachute : BasePlugin
 
             var loc = Core.Translation.GetPlayerLocalizer(player);
             player.SendChat(
-                $"{GetPrefix(player)} {loc["preview.started", item.DisplayName, (int)PreviewDurationSeconds]}"
+                $"{GetPrefix(player)} {loc["preview.started", shopApi?.GetItemDisplayName(player, item) ?? item.DisplayName, (int)PreviewDurationSeconds]}"
             );
         });
     }
@@ -449,7 +446,7 @@ public class Shop_Parachute : BasePlugin
     private void ApplyParachutePhysics(IPlayer player, PlayerData data, ParachuteItemRuntime runtime, float currentTime)
     {
         var playerPawn = player.PlayerPawn;
-        if (playerPawn is null || !playerPawn.IsValid || !player.IsAlive)
+        if (playerPawn == null || !playerPawn.IsValid || !player.IsAlive)
         {
             if (data.Flying)
             {
@@ -636,13 +633,13 @@ public class Shop_Parachute : BasePlugin
         try
         {
             var hostageServices = playerPawn.GetType().GetProperty("HostageServices")?.GetValue(playerPawn);
-            if (hostageServices is null)
+            if (hostageServices == null)
             {
                 return false;
             }
 
             var carriedHostageProp = hostageServices.GetType().GetProperty("CarriedHostageProp")?.GetValue(hostageServices);
-            if (carriedHostageProp is null)
+            if (carriedHostageProp == null)
             {
                 return false;
             }
@@ -660,7 +657,7 @@ public class Shop_Parachute : BasePlugin
     {
         runtime = default;
 
-        if (shopApi is null)
+        if (shopApi == null)
         {
             return false;
         }
@@ -776,7 +773,8 @@ public class Shop_Parachute : BasePlugin
             Type: itemType,
             Team: team,
             Enabled: itemTemplate.Enabled,
-            CanBeSold: itemTemplate.CanBeSold
+            CanBeSold: itemTemplate.CanBeSold,
+            DisplayNameResolver: player => ResolveDisplayName(itemTemplate, player)
         );
 
         var fallSpeed = itemTemplate.FallSpeed ?? settings.DefaultFallSpeed;
@@ -802,14 +800,15 @@ public class Shop_Parachute : BasePlugin
         return true;
     }
 
-    private string ResolveDisplayName(ParachuteItemTemplate itemTemplate)
+    private string ResolveDisplayName(ParachuteItemTemplate itemTemplate, IPlayer? player = null)
     {
         if (!string.IsNullOrWhiteSpace(itemTemplate.DisplayNameKey))
         {
             var key = itemTemplate.DisplayNameKey.Trim();
+            var localizer = player == null ? Core.Localizer : Core.Translation.GetPlayerLocalizer(player);
             var localized = itemTemplate.Type.Equals(nameof(ShopItemType.Permanent), StringComparison.OrdinalIgnoreCase)
-                ? Core.Localizer[key]
-                : Core.Localizer[key, FormatDuration(itemTemplate.DurationSeconds)];
+                ? localizer[key]
+                : localizer[key, FormatDuration(itemTemplate.DurationSeconds)];
             if (!string.Equals(localized, key, StringComparison.Ordinal))
             {
                 return localized;
@@ -994,4 +993,3 @@ internal sealed class ParachuteItemTemplate
 }
 
 internal readonly record struct ParachutePreviewState(ParachuteItemRuntime Runtime, float ExpiresAt);
-

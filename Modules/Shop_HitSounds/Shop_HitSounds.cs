@@ -48,22 +48,19 @@ public class Shop_HitSounds : BasePlugin
         }
         catch (Exception ex)
         {
-            Core.Logger.LogInformation(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
+            Core.Logger.LogError(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
         }
     }
 
     public override void OnSharedInterfaceInjected(IInterfaceManager interfaceManager)
     {
-        if (shopApi is null)
+        if (shopApi == null)
         {
             Core.Logger.LogWarning("ShopCore API is not available. HitSounds items will not be registered.");
             return;
         }
 
-        if (!handlersRegistered)
-        {
-            RegisterItemsAndHandlers();
-        }
+        RegisterItemsAndHandlers();
     }
 
     public override void Load(bool hotReload)
@@ -82,13 +79,13 @@ public class Shop_HitSounds : BasePlugin
     [GameEventHandler(HookMode.Pre)]
     public HookResult OnPlayerHurt(EventPlayerHurt e)
     {
-        if (!handlersRegistered || shopApi is null)
+        if (!handlersRegistered || shopApi == null)
         {
             return HookResult.Continue;
         }
 
         var attacker = e.AttackerPlayer;
-        if (attacker is null || !attacker.IsValid || attacker.IsFakeClient)
+        if (attacker == null || !attacker.IsValid || attacker.IsFakeClient)
         {
             return HookResult.Continue;
         }
@@ -104,7 +101,7 @@ public class Shop_HitSounds : BasePlugin
 
     private void RegisterItemsAndHandlers()
     {
-        if (shopApi is null)
+        if (shopApi == null)
         {
             return;
         }
@@ -172,7 +169,7 @@ public class Shop_HitSounds : BasePlugin
 
     private void UnregisterItemsAndHandlers()
     {
-        if (!handlersRegistered || shopApi is null)
+        if (!handlersRegistered || shopApi == null)
         {
             return;
         }
@@ -218,12 +215,12 @@ public class Shop_HitSounds : BasePlugin
 
         var player = context.Player;
         var loc = Core.Translation.GetPlayerLocalizer(player);
-        context.Block($"{GetPrefix(player)} {loc["error.permission", context.Item.DisplayName, runtime.RequiredPermission]}");
+        context.Block($"{GetPrefix(player)} {loc["error.permission", shopApi?.GetItemDisplayName(player, context.Item) ?? context.Item.DisplayName, runtime.RequiredPermission]}");
     }
 
     private void OnItemToggled(IPlayer player, ShopItemDefinition item, bool enabled)
     {
-        if (!enabled || shopApi is null || !registeredItemIds.Contains(item.Id))
+        if (!enabled || shopApi == null || !registeredItemIds.Contains(item.Id))
         {
             return;
         }
@@ -246,34 +243,17 @@ public class Shop_HitSounds : BasePlugin
 
     private void OnItemSold(IPlayer player, ShopItemDefinition item, decimal creditedAmount)
     {
-        if (!registeredItemIds.Contains(item.Id) || shopApi is null)
+        if (!registeredItemIds.Contains(item.Id))
         {
             return;
-        }
-
-        // If sold while equipped, make sure any other enabled item becomes active source.
-        foreach (var otherItemId in registeredItemOrder)
-        {
-            if (shopApi.IsItemEnabled(player, otherItemId))
-            {
-                return;
-            }
         }
     }
 
     private void OnItemExpired(IPlayer player, ShopItemDefinition item)
     {
-        if (!registeredItemIds.Contains(item.Id) || shopApi is null)
+        if (!registeredItemIds.Contains(item.Id))
         {
             return;
-        }
-
-        foreach (var otherItemId in registeredItemOrder)
-        {
-            if (shopApi.IsItemEnabled(player, otherItemId))
-            {
-                return;
-            }
         }
     }
 
@@ -290,14 +270,14 @@ public class Shop_HitSounds : BasePlugin
         }
 
         PlayHitSound(player, runtime.SoundPath);
-        SendPreviewMessage(player, "preview.played", item.DisplayName);
+        SendPreviewMessage(player, "preview.played", shopApi?.GetItemDisplayName(player, item) ?? item.DisplayName);
     }
 
     private bool TryGetEnabledSound(IPlayer player, out string soundPath)
     {
         soundPath = string.Empty;
 
-        if (shopApi is null)
+        if (shopApi == null)
         {
             return false;
         }
@@ -463,7 +443,8 @@ public class Shop_HitSounds : BasePlugin
             Type: itemType,
             Team: team,
             Enabled: itemTemplate.Enabled,
-            CanBeSold: itemTemplate.CanBeSold
+            CanBeSold: itemTemplate.CanBeSold,
+            DisplayNameResolver: player => ResolveDisplayName(itemTemplate, player)
         );
 
         runtime = new HitSoundItemRuntime(
@@ -475,14 +456,15 @@ public class Shop_HitSounds : BasePlugin
         return true;
     }
 
-    private string ResolveDisplayName(HitSoundItemTemplate itemTemplate)
+    private string ResolveDisplayName(HitSoundItemTemplate itemTemplate, IPlayer? player = null)
     {
         if (!string.IsNullOrWhiteSpace(itemTemplate.DisplayNameKey))
         {
             var key = itemTemplate.DisplayNameKey.Trim();
+            var localizer = player == null ? Core.Localizer : Core.Translation.GetPlayerLocalizer(player);
             var localized = itemTemplate.Type.Equals(nameof(ShopItemType.Permanent), StringComparison.OrdinalIgnoreCase)
-                ? Core.Localizer[key]
-                : Core.Localizer[key, FormatDuration(itemTemplate.DurationSeconds)];
+                ? localizer[key]
+                : localizer[key, FormatDuration(itemTemplate.DurationSeconds)];
             if (!string.Equals(localized, key, StringComparison.Ordinal))
             {
                 return localized;
@@ -593,4 +575,3 @@ internal sealed class HitSoundItemTemplate
     public bool CanBeSold { get; set; } = true;
     public string RequiredPermission { get; set; } = string.Empty;
 }
-

@@ -12,7 +12,7 @@ namespace ShopCore;
 
 [PluginMetadata(
     Id = "Shop_Killscreen",
-    Name = "Shpo Killscreen",
+    Name = "Shop Killscreen",
     Author = "T3Marius",
     Version = "1.0.0",
     Description = "ShopCore module with killscreen items"
@@ -47,21 +47,18 @@ public class Shop_Killscreen : BasePlugin
         }
         catch (Exception ex)
         {
-            Core.Logger.LogInformation(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
+            Core.Logger.LogError(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
         }
     }
     public override void OnSharedInterfaceInjected(IInterfaceManager interfaceManager)
     {
-        if (shopApi is null)
+        if (shopApi == null)
         {
-            Core.Logger.LogWarning("ShopCore API is not available. SmokeColor items will not be registered.");
+            Core.Logger.LogWarning("ShopCore API is not available. Killscreen items will not be registered.");
             return;
         }
 
-        if (!handlersRegistered)
-        {
-            RegisterItemsAndHandlers();
-        }
+        RegisterItemsAndHandlers();
     }
     public override void Load(bool hotReload)
     {
@@ -85,7 +82,7 @@ public class Shop_Killscreen : BasePlugin
         if (pawn == null || !pawn.IsValid)
             return HookResult.Continue;
 
-        if (shopApi is null)
+        if (shopApi == null)
             return HookResult.Continue;
 
         foreach (var itemId in registeredItemOrder)
@@ -103,7 +100,7 @@ public class Shop_Killscreen : BasePlugin
 
     private void RegisterItemsAndHandlers()
     {
-        if (shopApi is null)
+        if (shopApi == null)
         {
             return;
         }
@@ -146,7 +143,7 @@ public class Shop_Killscreen : BasePlugin
 
             if (!shopApi.RegisterItem(definition))
             {
-                Core.Logger.LogWarning("Failed to register smokecolor item '{ItemId}'.", definition.Id);
+                Core.Logger.LogWarning("Failed to register killscreen item '{ItemId}'.", definition.Id);
                 continue;
             }
 
@@ -166,7 +163,7 @@ public class Shop_Killscreen : BasePlugin
     }
     private void UnregisterItemsAndHandlers()
     {
-        if (!handlersRegistered || shopApi is null)
+        if (!handlersRegistered || shopApi == null)
         {
             return;
         }
@@ -185,7 +182,7 @@ public class Shop_Killscreen : BasePlugin
     }
     private void OnItemToggled(IPlayer player, ShopItemDefinition item, bool enabled)
     {
-        if (!enabled || shopApi is null || !registeredItemIds.Contains(item.Id))
+        if (!enabled || shopApi == null || !registeredItemIds.Contains(item.Id))
         {
             return;
         }
@@ -221,7 +218,7 @@ public class Shop_Killscreen : BasePlugin
             }
 
             var pawn = player.PlayerPawn;
-            if (pawn is null || !pawn.IsValid)
+            if (pawn == null || !pawn.IsValid)
             {
                 return;
             }
@@ -229,7 +226,7 @@ public class Shop_Killscreen : BasePlugin
             var currentTime = Core.Engine.GlobalVars.CurrentTime;
             pawn.HealthShotBoostExpirationTime.Value = currentTime + 1.0f;
             pawn.HealthShotBoostExpirationTimeUpdated();
-            player.SendChat($"{GetPrefix(player)} {Core.Translation.GetPlayerLocalizer(player)["preview.started", item.DisplayName]}");
+            player.SendChat($"{GetPrefix(player)} {Core.Translation.GetPlayerLocalizer(player)["preview.started", shopApi?.GetItemDisplayName(player, item) ?? item.DisplayName]}");
         });
     }
 
@@ -277,7 +274,7 @@ public class Shop_Killscreen : BasePlugin
         if (itemType == ShopItemType.Consumable)
         {
             Core.Logger.LogWarning(
-                "Skipping item '{ItemId}' because smoke color items cannot use Type '{Type}'.",
+                "Skipping item '{ItemId}' because killscreen items cannot use Type '{Type}'.",
                 itemId,
                 itemType
             );
@@ -320,7 +317,8 @@ public class Shop_Killscreen : BasePlugin
             Type: itemType,
             Team: team,
             Enabled: itemTemplate.Enabled,
-            CanBeSold: itemTemplate.CanBeSold
+            CanBeSold: itemTemplate.CanBeSold,
+            DisplayNameResolver: player => ResolveDisplayName(Core, itemTemplate, player)
         );
         return true;
     }
@@ -366,9 +364,10 @@ public class Shop_Killscreen : BasePlugin
             ]
         };
     }
-    private static string ResolveDisplayName(ISwiftlyCore Core, KillscreenItemTemplate item)
+    private static string ResolveDisplayName(ISwiftlyCore Core, KillscreenItemTemplate item, IPlayer? player = null)
     {
         var key = item.DisplayNameKey?.Trim();
+        var localizer = player == null ? Core.Localizer : Core.Translation.GetPlayerLocalizer(player);
 
         if (string.IsNullOrWhiteSpace(key))
         {
@@ -377,10 +376,10 @@ public class Shop_Killscreen : BasePlugin
 
         if (item.Type.Equals("Permanent", StringComparison.OrdinalIgnoreCase))
         {
-            return Core.Localizer[key];
+            return localizer[key];
         }
 
-        return Core.Localizer[key, FormatDuration(item.DurationSeconds)];
+        return localizer[key, FormatDuration(item.DurationSeconds)];
     }
     private static string FormatDuration(int totalSeconds)
     {
@@ -434,4 +433,3 @@ internal sealed class KillscreenItemTemplate
     public bool Enabled { get; set; } = true;
     public bool CanBeSold { get; set; } = true;
 }
-

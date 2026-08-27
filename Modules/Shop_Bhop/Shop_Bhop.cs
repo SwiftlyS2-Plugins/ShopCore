@@ -59,22 +59,19 @@ public class Shop_Bhop : BasePlugin
         }
         catch (Exception ex)
         {
-            Core.Logger.LogInformation(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
+            Core.Logger.LogError(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
         }
     }
 
     public override void OnSharedInterfaceInjected(IInterfaceManager interfaceManager)
     {
-        if (shopApi is null)
+        if (shopApi == null)
         {
             Core.Logger.LogWarning("ShopCore API is not available. Bhop items will not be registered.");
             return;
         }
 
-        if (!handlersRegistered)
-        {
-            RegisterItemsAndHandlers();
-        }
+        RegisterItemsAndHandlers();
     }
 
     public override void Load(bool hotReload)
@@ -115,7 +112,7 @@ public class Shop_Bhop : BasePlugin
 
     private void RegisterItemsAndHandlers()
     {
-        if (shopApi is null)
+        if (shopApi == null)
         {
             return;
         }
@@ -180,7 +177,7 @@ public class Shop_Bhop : BasePlugin
 
     private void UnregisterItemsAndHandlers()
     {
-        if (!handlersRegistered || shopApi is null)
+        if (!handlersRegistered || shopApi == null)
         {
             return;
         }
@@ -229,12 +226,12 @@ public class Shop_Bhop : BasePlugin
 
         var player = context.Player;
         var loc = Core.Translation.GetPlayerLocalizer(player);
-        context.Block($"{GetPrefix(player)} {loc["error.permission", context.Item.DisplayName, runtime.RequiredPermission]}");
+        context.Block($"{GetPrefix(player)} {loc["error.permission", shopApi?.GetItemDisplayName(player, context.Item) ?? context.Item.DisplayName, runtime.RequiredPermission]}");
     }
 
     private void OnItemToggled(IPlayer player, ShopItemDefinition item, bool enabled)
     {
-        if (!registeredItemIds.Contains(item.Id) || shopApi is null || !player.IsValid)
+        if (!registeredItemIds.Contains(item.Id) || shopApi == null || !player.IsValid)
         {
             return;
         }
@@ -307,7 +304,7 @@ public class Shop_Bhop : BasePlugin
             ExpiresAt: Core.Engine.GlobalVars.CurrentTime + PreviewDurationSeconds
         );
 
-        SendPreviewMessage(player, "preview.started", item.DisplayName, (int)PreviewDurationSeconds);
+        SendPreviewMessage(player, "preview.started", shopApi?.GetItemDisplayName(player, item) ?? item.DisplayName, (int)PreviewDurationSeconds);
     }
 
     private void OnClientConnected(IOnClientConnectedEvent @event)
@@ -333,7 +330,7 @@ public class Shop_Bhop : BasePlugin
 
     private void OnTick()
     {
-        if (shopApi is null || registeredItemOrder.Count == 0)
+        if (shopApi == null || registeredItemOrder.Count == 0)
         {
             return;
         }
@@ -360,7 +357,7 @@ public class Shop_Bhop : BasePlugin
     private bool TryGetActiveBhop(IPlayer player, out BhopItemRuntime runtime)
     {
         runtime = default;
-        if (shopApi is null)
+        if (shopApi == null)
         {
             return false;
         }
@@ -504,7 +501,7 @@ public class Shop_Bhop : BasePlugin
 
     private void ApplyGlobalBhopConVarState()
     {
-        if (enableBhopConVar is null || autoBhopConVar is null)
+        if (enableBhopConVar == null || autoBhopConVar == null)
         {
             return;
         }
@@ -614,7 +611,7 @@ public class Shop_Bhop : BasePlugin
         }
 
         var pawn = player.PlayerPawn;
-        if (pawn is null || !pawn.IsValid)
+        if (pawn == null || !pawn.IsValid)
         {
             return;
         }
@@ -698,7 +695,8 @@ public class Shop_Bhop : BasePlugin
             Type: itemType,
             Team: team,
             Enabled: itemTemplate.Enabled,
-            CanBeSold: itemTemplate.CanBeSold
+            CanBeSold: itemTemplate.CanBeSold,
+            DisplayNameResolver: player => ResolveDisplayName(itemTemplate, player)
         );
 
         runtime = new BhopItemRuntime(
@@ -710,14 +708,15 @@ public class Shop_Bhop : BasePlugin
         return true;
     }
 
-    private string ResolveDisplayName(BhopItemTemplate itemTemplate)
+    private string ResolveDisplayName(BhopItemTemplate itemTemplate, IPlayer? player = null)
     {
         if (!string.IsNullOrWhiteSpace(itemTemplate.DisplayNameKey))
         {
             var key = itemTemplate.DisplayNameKey.Trim();
+            var localizer = player == null ? Core.Localizer : Core.Translation.GetPlayerLocalizer(player);
             var localized = itemTemplate.Type.Equals(nameof(ShopItemType.Permanent), StringComparison.OrdinalIgnoreCase)
-                ? Core.Localizer[key]
-                : Core.Localizer[key, FormatDuration(itemTemplate.DurationSeconds)];
+                ? localizer[key]
+                : localizer[key, FormatDuration(itemTemplate.DurationSeconds)];
             if (!string.Equals(localized, key, StringComparison.Ordinal))
             {
                 return localized;
@@ -845,4 +844,3 @@ internal sealed class BhopItemTemplate
     public bool CanBeSold { get; set; } = true;
     public string RequiredPermission { get; set; } = string.Empty;
 }
-

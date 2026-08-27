@@ -9,6 +9,7 @@ using SwiftlyS2.Shared.Natives;
 using SwiftlyS2.Shared.Players;
 using SwiftlyS2.Shared.Plugins;
 using SwiftlyS2.Shared.SchemaDefinitions;
+using System.Diagnostics.CodeAnalysis;
 
 namespace ShopCore;
 
@@ -32,9 +33,11 @@ public class Shop_PlayerColor : BasePlugin
 
     private readonly HashSet<string> registeredItemIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> registeredItemOrder = new();
+    private readonly List<int> rainbowPlayersToRemove = new();
     private readonly Dictionary<string, PlayerColorItemRuntime> itemRuntimeById = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<int, float> nextRainbowUpdateAtByPlayerId = new();
     private readonly Dictionary<int, PlayerColorPreviewState> previewRuntimeByPlayerId = new();
+    private readonly Dictionary<int, PlayerColorItemRuntime?> cachedRuntimeByPlayerId = new();
     private readonly Random random = new();
 
     private IShopCoreApiV2? shopApi;
@@ -60,22 +63,19 @@ public class Shop_PlayerColor : BasePlugin
         }
         catch (Exception ex)
         {
-            Core.Logger.LogInformation(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
+            Core.Logger.LogError(ex, "Failed to resolve shared interface '{InterfaceKey}'.", ShopCoreInterfaceKey);
         }
     }
 
     public override void OnSharedInterfaceInjected(IInterfaceManager interfaceManager)
     {
-        if (shopApi is null)
+        if (shopApi == null)
         {
             Core.Logger.LogWarning("ShopCore API is not available. PlayerColor items will not be registered.");
             return;
         }
 
-        if (!handlersRegistered)
-        {
-            RegisterItemsAndHandlers();
-        }
+        RegisterItemsAndHandlers();
     }
 
     public override void Load(bool hotReload)
@@ -116,7 +116,7 @@ public class Shop_PlayerColor : BasePlugin
     public HookResult OnPlayerSpawn(EventPlayerSpawn e)
     {
         var player = Core.PlayerManager.GetPlayer(e.UserId);
-        if (player is null || !player.IsValid || player.IsFakeClient)
+        if (player == null || !player.IsValid || player.IsFakeClient)
         {
             return HookResult.Continue;
         }
@@ -129,7 +129,7 @@ public class Shop_PlayerColor : BasePlugin
     public HookResult OnPlayerDeath(EventPlayerDeath e)
     {
         var player = Core.PlayerManager.GetPlayer(e.UserId);
-        if (player is null || !player.IsValid || player.IsFakeClient)
+        if (player == null || !player.IsValid || player.IsFakeClient)
         {
             return HookResult.Continue;
         }
@@ -142,50 +142,68 @@ public class Shop_PlayerColor : BasePlugin
     {
         nextRainbowUpdateAtByPlayerId.Remove(e.PlayerId);
         previewRuntimeByPlayerId.Remove(e.PlayerId);
+        cachedRuntimeByPlayerId.Remove(e.PlayerId);
     }
 
     private void OnTick()
     {
-        if (shopApi is null || !handlersRegistered || registeredItemOrder.Count == 0)
+        if (shopApi == null || !handlersRegistered || registeredItemOrder.Count == 0)
+        {
+            return;
+        }
+
+        if (nextRainbowUpdateAtByPlayerId.Count == 0)
         {
             return;
         }
 
         var currentTime = Core.Engine.GlobalVars.CurrentTime;
 
-        foreach (var player in Core.PlayerManager.GetAllValidPlayers())
+        rainbowPlayersToRemove.Clear();
+
+        foreach (var kvp in nextRainbowUpdateAtByPlayerId)
         {
-            if (player.IsFakeClient)
+            var playerId = kvp.Key;
+            var nextUpdateAt = kvp.Value;
+
+            if (currentTime < nextUpdateAt)
             {
+                continue;
+            }
+
+            var player = Core.PlayerManager.GetPlayer(playerId);
+            if (!IsRealPlayer(player))
+            {
+                rainbowPlayersToRemove.Add(playerId);
                 continue;
             }
 
             if (!TryGetActiveRuntime(player, out var runtime))
             {
-                nextRainbowUpdateAtByPlayerId.Remove(player.PlayerID);
+                rainbowPlayersToRemove.Add(playerId);
                 continue;
             }
 
             if (!runtime.IsRainbow)
             {
-                nextRainbowUpdateAtByPlayerId.Remove(player.PlayerID);
-                continue;
-            }
-
-            if (nextRainbowUpdateAtByPlayerId.TryGetValue(player.PlayerID, out var nextUpdateAt) && currentTime < nextUpdateAt)
-            {
+                rainbowPlayersToRemove.Add(playerId);
                 continue;
             }
 
             var rainbowColor = NextRainbowColor();
             ApplyColor(player, rainbowColor);
-            nextRainbowUpdateAtByPlayerId[player.PlayerID] = currentTime + runtime.RainbowUpdateIntervalSeconds;
+            nextRainbowUpdateAtByPlayerId[playerId] = currentTime + runtime.RainbowUpdateIntervalSeconds;
+        }
+
+        foreach (var playerId in rainbowPlayersToRemove)
+        {
+            nextRainbowUpdateAtByPlayerId.Remove(playerId);
         }
     }
 
     private void RegisterItemsAndHandlers()
     {
-        if (shopApi is null)
+        if (shopApi == null)
         {
             return;
         }
@@ -253,7 +271,7 @@ public class Shop_PlayerColor : BasePlugin
 
     private void UnregisterItemsAndHandlers()
     {
-        if (!handlersRegistered || shopApi is null)
+        if (!handlersRegistered || shopApi == null)
         {
             return;
         }
@@ -273,6 +291,7 @@ public class Shop_PlayerColor : BasePlugin
         registeredItemOrder.Clear();
         itemRuntimeById.Clear();
         nextRainbowUpdateAtByPlayerId.Clear();
+        cachedRuntimeByPlayerId.Clear();
         handlersRegistered = false;
     }
 
@@ -300,12 +319,12 @@ public class Shop_PlayerColor : BasePlugin
 
         var player = context.Player;
         var loc = Core.Translation.GetPlayerLocalizer(player);
-        context.Block($"{GetPrefix(player)} {loc["error.permission", context.Item.DisplayName, runtime.RequiredPermission]}");
+        context.Block($"{GetPrefix(player)} {loc["error.permission", shopApi?.GetItemDisplayName(player, context.Item) ?? context.Item.DisplayName, runtime.RequiredPermission]}");
     }
 
     private void OnItemToggled(IPlayer player, ShopItemDefinition item, bool enabled)
     {
-        if (shopApi is null || !registeredItemIds.Contains(item.Id))
+        if (shopApi == null || !registeredItemIds.Contains(item.Id))
         {
             return;
         }
@@ -328,6 +347,7 @@ public class Shop_PlayerColor : BasePlugin
             }
         }
 
+        cachedRuntimeByPlayerId.Remove(player.PlayerID);
         RefreshPlayerColor(player);
     }
 
@@ -338,6 +358,7 @@ public class Shop_PlayerColor : BasePlugin
             return;
         }
 
+        cachedRuntimeByPlayerId.Remove(player.PlayerID);
         RefreshPlayerColor(player);
     }
 
@@ -348,6 +369,7 @@ public class Shop_PlayerColor : BasePlugin
             return;
         }
 
+        cachedRuntimeByPlayerId.Remove(player.PlayerID);
         RefreshPlayerColor(player);
     }
 
@@ -369,12 +391,12 @@ public class Shop_PlayerColor : BasePlugin
         );
 
         RefreshPlayerColor(player);
-        SendPreviewMessage(player, "preview.started", item.DisplayName, (int)PreviewDurationSeconds);
+        SendPreviewMessage(player, "preview.started", shopApi?.GetItemDisplayName(player, item) ?? item.DisplayName, (int)PreviewDurationSeconds);
     }
 
     private void RefreshPlayerColor(IPlayer player)
     {
-        if (shopApi is null || player is null || !player.IsValid || player.IsFakeClient)
+        if (shopApi == null || player == null || !player.IsValid || player.IsFakeClient)
         {
             return;
         }
@@ -420,8 +442,18 @@ public class Shop_PlayerColor : BasePlugin
     {
         runtime = default;
 
-        if (shopApi is null)
+        if (shopApi == null)
         {
+            return false;
+        }
+
+        if (cachedRuntimeByPlayerId.TryGetValue(player.PlayerID, out var cached))
+        {
+            if (cached.HasValue)
+            {
+                runtime = cached.Value;
+                return true;
+            }
             return false;
         }
 
@@ -438,9 +470,11 @@ public class Shop_PlayerColor : BasePlugin
             }
 
             runtime = itemRuntime;
+            cachedRuntimeByPlayerId[player.PlayerID] = runtime;
             return true;
         }
 
+        cachedRuntimeByPlayerId[player.PlayerID] = null;
         return false;
     }
 
@@ -505,19 +539,24 @@ public class Shop_PlayerColor : BasePlugin
     {
         pawn = null!;
 
-        if (player is null || !player.IsValid)
+        if (player == null || !player.IsValid)
         {
             return false;
         }
 
         var playerPawn = player.PlayerPawn;
-        if (playerPawn is null || !playerPawn.IsValid)
+        if (playerPawn == null || !playerPawn.IsValid)
         {
             return false;
         }
 
         pawn = playerPawn;
         return pawn.LifeState == (int)LifeState_t.LIFE_ALIVE;
+    }
+
+    private static bool IsRealPlayer([NotNullWhen(true)] IPlayer? player)
+    {
+        return player is not null && player.IsValid && !player.IsFakeClient;
     }
 
     private Color NextRainbowColor()
@@ -629,7 +668,8 @@ public class Shop_PlayerColor : BasePlugin
             Type: itemType,
             Team: team,
             Enabled: itemTemplate.Enabled,
-            CanBeSold: itemTemplate.CanBeSold
+            CanBeSold: itemTemplate.CanBeSold,
+            DisplayNameResolver: player => ResolveDisplayName(itemTemplate, isRainbow, player)
         );
 
         runtime = new PlayerColorItemRuntime(
@@ -643,23 +683,24 @@ public class Shop_PlayerColor : BasePlugin
         return true;
     }
 
-    private string ResolveDisplayName(PlayerColorItemTemplate itemTemplate, bool isRainbow)
+    private string ResolveDisplayName(PlayerColorItemTemplate itemTemplate, bool isRainbow, IPlayer? player = null)
     {
         if (!string.IsNullOrWhiteSpace(itemTemplate.DisplayNameKey))
         {
             var key = itemTemplate.DisplayNameKey.Trim();
             string localized;
+            var localizer = player == null ? Core.Localizer : Core.Translation.GetPlayerLocalizer(player);
 
             if (itemTemplate.Type.Equals(nameof(ShopItemType.Permanent), StringComparison.OrdinalIgnoreCase))
             {
-                localized = Core.Localizer[key, itemTemplate.Color];
+                localized = localizer[key, itemTemplate.Color];
             }
             else
             {
                 var duration = FormatDuration(itemTemplate.DurationSeconds);
                 localized = isRainbow
-                    ? Core.Localizer[key, duration]
-                    : Core.Localizer[key, itemTemplate.Color, duration];
+                    ? localizer[key, duration]
+                    : localizer[key, itemTemplate.Color, duration];
             }
 
             if (!string.Equals(localized, key, StringComparison.Ordinal))
@@ -723,7 +764,7 @@ public class Shop_PlayerColor : BasePlugin
             var hours = (int)ts.TotalHours;
             var minutes = ts.Minutes;
             return minutes > 0
-                ? $"{hours} Hour{(hours == 1 ? "" : "s")} {minutes} Minute{(minutes == 1 ? "" : "s")}" 
+                ? $"{hours} Hour{(hours == 1 ? "" : "s")} {minutes} Minute{(minutes == 1 ? "" : "s")}"
                 : $"{hours} Hour{(hours == 1 ? "" : "s")}";
         }
 
@@ -732,7 +773,7 @@ public class Shop_PlayerColor : BasePlugin
             var minutes = (int)ts.TotalMinutes;
             var seconds = ts.Seconds;
             return seconds > 0
-                ? $"{minutes} Minute{(minutes == 1 ? "" : "s")} {seconds} Second{(seconds == 1 ? "" : "s")}" 
+                ? $"{minutes} Minute{(minutes == 1 ? "" : "s")} {seconds} Second{(seconds == 1 ? "" : "s")}"
                 : $"{minutes} Minute{(minutes == 1 ? "" : "s")}";
         }
 
@@ -870,4 +911,3 @@ internal sealed class PlayerColorItemTemplate
 }
 
 internal readonly record struct PlayerColorPreviewState(PlayerColorItemRuntime Runtime, float ExpiresAt);
-

@@ -11,7 +11,7 @@ namespace ShopCore;
     Id = "Shop_Flags",
     Name = "Shop Flags",
     Author = "T3Marius",
-    Version = "1.0.9",
+    Version = "1.0.0",
     Description = "ShopCore module with permission flag items"
 )]
 public class Shop_Flags : BasePlugin
@@ -434,7 +434,36 @@ public class Shop_Flags : BasePlugin
     }
 }
 
-internal readonly record struct FlagItemRuntime(string ItemId, string GrantedPermission, string RequiredPermission);
-internal sealed class FlagsModuleConfig { public FlagsModuleSettings Settings { get; set; } = new(); public List<FlagItemTemplate> Items { get; set; } = []; }
-internal sealed class FlagsModuleSettings { public bool UseCorePrefix { get; set; } = true; public string Category { get; set; } = "Permissions/Flags"; }
-internal sealed class FlagItemTemplate { public string Id { get; set; } = string.Empty; public string DisplayName { get; set; } = string.Empty; public string DisplayNameKey { get; set; } = string.Empty; public string GrantedPermission { get; set; } = string.Empty; public string RequiredPermission { get; set; } = string.Empty; public int Price { get; set; } = 0; public int? SellPrice { get; set; } public int DurationSeconds { get; set; } = 0; public string Type { get; set; } = nameof(ShopItemType.Temporary); public string Team { get; set; } = nameof(ShopItemTeam.Any); public bool Enabled { get; set; } = true; public bool CanBeSold { get; set; } = true; }
+internal readonly record struct FlagItemRuntime(
+    string ItemId,
+    string GrantedPermission,
+    string RequiredPermission
+);
+
+internal sealed class FlagsModuleConfig
+{
+    public FlagsModuleSettings Settings { get; set; } = new();
+    public List<FlagItemTemplate> Items { get; set; } = [];
+}
+
+internal sealed class FlagsModuleSettings
+{
+    public bool UseCorePrefix { get; set; } = true;
+    public string Category { get; set; } = "Permissions/Flags";
+}
+
+internal sealed class FlagItemTemplate
+{
+    public string Id { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string DisplayNameKey { get; set; } = string.Empty;
+    public string GrantedPermission { get; set; } = string.Empty;
+    public string RequiredPermission { get; set; } = string.Empty;
+    public int Price { get; set; } = 0;
+    public int? SellPrice { get; set; }
+    public int DurationSeconds { get; set; } = 0;
+    public string Type { get; set; } = nameof(ShopItemType.Temporary);
+    public string Team { get; set; } = nameof(ShopItemTeam.Any);
+    public bool Enabled { get; set; } = true;
+    public bool CanBeSold { get; set; } = true;
+}
