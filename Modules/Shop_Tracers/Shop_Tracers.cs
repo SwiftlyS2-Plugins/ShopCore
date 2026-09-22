@@ -27,6 +27,8 @@ public class Shop_Tracers : BasePlugin
     private const string TemplateSectionName = "Main";
     private const string DefaultCategory = "Visuals/Tracers";
     private const float PreviewDurationSeconds = 12f;
+    private const float BeamSweepIntervalSeconds = 0.1f;
+    private const float ActiveRuntimeRefreshSeconds = 1f;
 
     private static readonly Color TeamTColor = new(255, 220, 50, 255);
     private static readonly Color TeamCtColor = new(80, 170, 255, 255);
@@ -38,6 +40,10 @@ public class Shop_Tracers : BasePlugin
     private readonly List<string> registeredItemOrder = new();
     private readonly Dictionary<string, TracerItemRuntime> itemRuntimeById = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<int, TracerPreviewState> previewRuntimeByPlayerId = new();
+    private readonly Dictionary<int, CachedTracerRuntime> activeRuntimeByPlayerId = new();
+    private readonly Dictionary<int, float> nextDrawAllowedAtByPlayerId = new();
+    private readonly Dictionary<int, TracerBeamPool> beamPoolByPlayerId = new();
+    private CancellationTokenSource? beamSweepTimer;
     private readonly Random random = new();
 
     private TracersModuleSettings runtimeSettings = new();
@@ -79,6 +85,11 @@ public class Shop_Tracers : BasePlugin
     public override void Load(bool hotReload)
     {
         Core.Event.OnClientDisconnected += OnClientDisconnected;
+        beamSweepTimer = Core.Scheduler.DelayAndRepeatBySeconds(
+            BeamSweepIntervalSeconds,
+            BeamSweepIntervalSeconds,
+            () => Core.Scheduler.NextWorldUpdate(SweepExpiredBeams)
+        );
 
         if (shopApi is not null && !handlersRegistered)
         {
@@ -90,12 +101,26 @@ public class Shop_Tracers : BasePlugin
     {
         Core.Event.OnClientDisconnected -= OnClientDisconnected;
         previewRuntimeByPlayerId.Clear();
+        activeRuntimeByPlayerId.Clear();
+        nextDrawAllowedAtByPlayerId.Clear();
+
+        if (beamSweepTimer is not null)
+        {
+            beamSweepTimer.Cancel();
+            beamSweepTimer.Dispose();
+            beamSweepTimer = null;
+        }
+
+        DespawnAllBeams();
         UnregisterItemsAndHandlers();
     }
 
     private void OnClientDisconnected(IOnClientDisconnectedEvent e)
     {
         previewRuntimeByPlayerId.Remove(e.PlayerId);
+        activeRuntimeByPlayerId.Remove(e.PlayerId);
+        nextDrawAllowedAtByPlayerId.Remove(e.PlayerId);
+        DespawnPlayerPool(e.PlayerId);
     }
 
     [GameEventHandler(HookMode.Pre)]
@@ -117,15 +142,24 @@ public class Shop_Tracers : BasePlugin
             return HookResult.Continue;
         }
 
+        var now = Core.Engine.GlobalVars.CurrentTime;
+        if (nextDrawAllowedAtByPlayerId.TryGetValue(player.PlayerID, out var nextAllowedAt) && now < nextAllowedAt)
+        {
+            return HookResult.Continue;
+        }
+
         if (!TryGetTracerStart(player, runtime.OriginZOffset, out var start))
         {
             return HookResult.Continue;
         }
 
+        nextDrawAllowedAtByPlayerId[player.PlayerID] = now + Math.Max(runtimeSettings.MinDrawIntervalSeconds, 0.01f);
+
         var end = new Vector(e.X, e.Y, e.Z);
         var color = ResolveTracerColor(player, runtime);
 
-        Core.Scheduler.NextWorldUpdate(() => DrawTracer(start, end, color, runtime));
+        var playerId = player.PlayerID;
+        Core.Scheduler.NextWorldUpdate(() => DrawTracer(playerId, start, end, color, runtime));
         return HookResult.Continue;
     }
 
@@ -252,8 +286,11 @@ public class Shop_Tracers : BasePlugin
 
     private void OnItemToggled(IPlayer player, ShopItemDefinition item, bool enabled)
     {
+        activeRuntimeByPlayerId.Remove(player.PlayerID);
+
         if (!enabled || shopApi == null || !registeredItemIds.Contains(item.Id))
         {
+            ReclaimPoolIfNoActiveTracer(player);
             return;
         }
 
@@ -275,10 +312,34 @@ public class Shop_Tracers : BasePlugin
 
     private void OnItemSold(IPlayer player, ShopItemDefinition item, decimal amount)
     {
+        activeRuntimeByPlayerId.Remove(player.PlayerID);
+        ReclaimPoolIfNoActiveTracer(player);
     }
 
     private void OnItemExpired(IPlayer player, ShopItemDefinition item)
     {
+        activeRuntimeByPlayerId.Remove(player.PlayerID);
+        ReclaimPoolIfNoActiveTracer(player);
+    }
+
+    private void ReclaimPoolIfNoActiveTracer(IPlayer player)
+    {
+        if (!beamPoolByPlayerId.ContainsKey(player.PlayerID))
+        {
+            return;
+        }
+
+        if (previewRuntimeByPlayerId.ContainsKey(player.PlayerID))
+        {
+            return;
+        }
+
+        if (TryGetEnabledRuntime(player, out _))
+        {
+            return;
+        }
+
+        DespawnPlayerPool(player.PlayerID);
     }
 
     private void OnItemPreview(IPlayer player, ShopItemDefinition item)
@@ -354,6 +415,14 @@ public class Shop_Tracers : BasePlugin
             return false;
         }
 
+        var now = Core.Engine.GlobalVars.CurrentTime;
+        if (activeRuntimeByPlayerId.TryGetValue(player.PlayerID, out var cached) && now < cached.NextRefreshAt)
+        {
+            runtime = cached.Runtime;
+            return cached.HasRuntime;
+        }
+
+        var found = false;
         foreach (var itemId in registeredItemOrder)
         {
             if (!itemRuntimeById.TryGetValue(itemId, out var itemRuntime))
@@ -367,10 +436,17 @@ public class Shop_Tracers : BasePlugin
             }
 
             runtime = itemRuntime;
-            return true;
+            found = true;
+            break;
         }
 
-        return false;
+        activeRuntimeByPlayerId[player.PlayerID] = new CachedTracerRuntime(
+            runtime,
+            found,
+            now + ActiveRuntimeRefreshSeconds
+        );
+
+        return found;
     }
 
     private static bool TryGetTracerStart(IPlayer player, float zOffset, out Vector start)
@@ -421,14 +497,31 @@ public class Shop_Tracers : BasePlugin
         }
     }
 
-    private void DrawTracer(Vector start, Vector end, Color color, TracerItemRuntime runtime)
+    private void DrawTracer(int playerId, Vector start, Vector end, Color color, TracerItemRuntime runtime)
     {
         try
         {
-            var beam = Core.EntitySystem.CreateEntityByDesignerName<CBeam>("beam");
+            var poolSize = Math.Max(runtimeSettings.PoolSizePerPlayer, 1);
+            if (!beamPoolByPlayerId.TryGetValue(playerId, out var pool))
+            {
+                pool = new TracerBeamPool(poolSize);
+                beamPoolByPlayerId[playerId] = pool;
+            }
+
+            var slotIndex = pool.NextIndex;
+            pool.NextIndex = (pool.NextIndex + 1) % pool.Slots.Length;
+
+            var beam = pool.Slots[slotIndex];
             if (beam == null || !beam.IsValid)
             {
-                return;
+                beam = Core.EntitySystem.CreateEntityByDesignerName<CBeam>("beam");
+                if (beam == null || !beam.IsValid)
+                {
+                    return;
+                }
+
+                beam.DispatchSpawn();
+                pool.Slots[slotIndex] = beam;
             }
 
             beam.Render = color;
@@ -450,29 +543,99 @@ public class Shop_Tracers : BasePlugin
             beam.EndPos.Z = end.Z;
             beam.EndPosUpdated();
 
-            beam.DispatchSpawn();
-
-            Core.Scheduler.DelayBySeconds(runtime.LifeSeconds, () =>
-            {
-                Core.Scheduler.NextWorldUpdate(() =>
-                {
-                    try
-                    {
-                        if (beam.IsValid)
-                        {
-                            beam.Despawn();
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Core.Logger.LogWarning(ex, "Failed to despawn tracer beam entity.");
-                    }
-                });
-            });
+            pool.HideAt[slotIndex] = Core.Engine.GlobalVars.CurrentTime + runtime.LifeSeconds;
+            pool.Hidden[slotIndex] = false;
         }
         catch (Exception ex)
         {
             Core.Logger.LogWarning(ex, "Failed to draw tracer beam.");
+        }
+    }
+
+    private void SweepExpiredBeams()
+    {
+        if (beamPoolByPlayerId.Count == 0)
+        {
+            return;
+        }
+
+        var now = Core.Engine.GlobalVars.CurrentTime;
+
+        foreach (var pool in beamPoolByPlayerId.Values)
+        {
+            for (var i = 0; i < pool.Slots.Length; i++)
+            {
+                if (pool.Hidden[i])
+                {
+                    continue;
+                }
+
+                var beam = pool.Slots[i];
+                if (beam == null || !beam.IsValid || now < pool.HideAt[i])
+                {
+                    continue;
+                }
+
+                try
+                {
+                    beam.TurnedOff = true;
+                    beam.TurnedOffUpdated();
+                }
+                catch (Exception ex)
+                {
+                    Core.Logger.LogWarning(ex, "Failed to hide tracer beam entity.");
+                }
+
+                pool.Hidden[i] = true;
+            }
+        }
+    }
+
+    private void DespawnPlayerPool(int playerId)
+    {
+        if (!beamPoolByPlayerId.Remove(playerId, out var pool))
+        {
+            return;
+        }
+
+        DespawnPool(pool);
+    }
+
+    private void DespawnAllBeams()
+    {
+        foreach (var pool in beamPoolByPlayerId.Values)
+        {
+            DespawnPool(pool);
+        }
+
+        beamPoolByPlayerId.Clear();
+    }
+
+    private void DespawnPool(TracerBeamPool pool)
+    {
+        foreach (var beam in pool.Slots)
+        {
+            if (beam == null)
+            {
+                continue;
+            }
+
+            DespawnBeam(beam);
+        }
+    }
+
+    private void DespawnBeam(CBeam beam)
+    {
+        try
+        {
+            if (beam.IsValid)
+            {
+                beam.Despawn();
+            }
+        }
+        catch (Exception ex)
+        {
+            Core.Logger.LogWarning(ex, "Failed to despawn tracer beam entity.");
         }
     }
 
@@ -711,6 +874,16 @@ public class Shop_Tracers : BasePlugin
             ? DefaultCategory
             : config.Settings.Category.Trim();
 
+        if (config.Settings.MinDrawIntervalSeconds <= 0f)
+        {
+            config.Settings.MinDrawIntervalSeconds = 0.075f;
+        }
+
+        if (config.Settings.PoolSizePerPlayer <= 0)
+        {
+            config.Settings.PoolSizePerPlayer = 6;
+        }
+
         if (config.Settings.DefaultLifeSeconds <= 0f)
         {
             config.Settings.DefaultLifeSeconds = 0.3f;
@@ -829,6 +1002,8 @@ internal sealed class TracersModuleSettings
 {
     public bool UseCorePrefix { get; set; } = true;
     public string Category { get; set; } = "Visuals/Tracers";
+    public float MinDrawIntervalSeconds { get; set; } = 0.075f;
+    public int PoolSizePerPlayer { get; set; } = 6;
     public float DefaultLifeSeconds { get; set; } = 0.3f;
     public float DefaultStartWidth { get; set; } = 1.0f;
     public float DefaultEndWidth { get; set; } = 0.5f;
@@ -857,3 +1032,13 @@ internal sealed class TracerItemTemplate
 }
 
 internal readonly record struct TracerPreviewState(TracerItemRuntime Runtime, float ExpiresAt);
+
+internal readonly record struct CachedTracerRuntime(TracerItemRuntime Runtime, bool HasRuntime, float NextRefreshAt);
+
+internal sealed class TracerBeamPool(int size)
+{
+    public CBeam?[] Slots { get; } = new CBeam?[size];
+    public float[] HideAt { get; } = new float[size];
+    public bool[] Hidden { get; } = new bool[size];
+    public int NextIndex { get; set; }
+}
