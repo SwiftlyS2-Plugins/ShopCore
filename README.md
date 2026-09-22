@@ -42,7 +42,7 @@ Current repository modules built for ShopCore:
 
 This plugin depends on these shared interfaces:
 
-- `Cookies.Player.V1` [Click Here](https://github.com/SwiftlyS2-Plugins/Cookies/releases/tag/v1.0.5)
+- `Cookies.Player.V1` [Click Here](https://github.com/SwiftlyS2-Plugins/Cookies/releases/tag/v1.0.13)
 - `Economy.API.v1` [Click Here](https://github.com/SwiftlyS2-Plugins/Economy/releases/tag/v2.0.1)
 
 Make sure the Cookies and Economy plugins are loaded and export matching contract DLLs.
