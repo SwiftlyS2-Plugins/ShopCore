@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using ShopCore.Contract;
 using SwiftlyS2.Shared;
 using SwiftlyS2.Shared.Database;
+using SwiftlyS2.Shared.Events;
 using SwiftlyS2.Shared.Players;
 using SwiftlyS2.Shared.Plugins;
 using SwiftlyS2.Shared.Translation;
@@ -12,7 +13,7 @@ namespace ShopCore;
 
 [PluginMetadata(
     Id = "ShopCore",
-    Version = "v1.1.5",
+    Version = "v1.1.6",
     Name = "ShopCore",
     Author = "T3Marius",
     Description = "Core shop plugin exposing items and credits API."
@@ -100,6 +101,14 @@ public partial class ShopCore : BasePlugin
         InitializeConfiguration();
     }
 
+    public override void Unload()
+    {
+        StopTimedIncome();
+        UnsubscribeEvents();
+        UnregisterConfiguredCommands();
+        shopApi.DisposeLedgerStore();
+    }
+
     private T? ResolveSharedInterface<T>(IInterfaceManager interfaceManager, IEnumerable<string> keys) where T : class
     {
         foreach (var key in keys.Distinct(StringComparer.Ordinal))
@@ -122,14 +131,6 @@ public partial class ShopCore : BasePlugin
         }
 
         return null;
-    }
-
-    public override void Unload()
-    {
-        StopTimedIncome();
-        UnsubscribeEvents();
-        UnregisterConfiguredCommands();
-        shopApi.DisposeLedgerStore();
     }
 
     internal string? GetPluginPath(string pluginId)

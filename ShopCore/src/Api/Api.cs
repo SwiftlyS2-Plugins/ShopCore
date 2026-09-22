@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Reflection;
+using System.Collections.Concurrent;
 using FreeSql;
 using Microsoft.Extensions.Configuration;
 using ShopCore.Contract;
@@ -37,6 +38,9 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
     private readonly Dictionary<ulong, long> previewCooldownUntilUnixMs = new();
     private IShopLedgerStore ledgerStore = new InMemoryShopLedgerStore(2000);
 
+    // Teljesítmény optimalizációs cache
+    private readonly ConcurrentDictionary<(ulong SteamId, string Key), object> cookieCache = new();
+
     public ShopCoreApiV2(ShopCore plugin)
     {
         this.plugin = plugin;
@@ -54,6 +58,63 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
     public event Action<IPlayer, ShopItemDefinition>? OnItemExpired;
     public event Action<IPlayer, ShopItemDefinition>? OnItemPreview;
     public event Action<ShopLedgerEntry>? OnLedgerEntryRecorded;
+
+    internal void InvalidatePlayerCache(ulong steamId)
+    {
+        var keysToRemove = cookieCache.Keys.Where(k => k.SteamId == steamId).ToList();
+        foreach (var key in keysToRemove)
+        {
+            cookieCache.TryRemove(key, out _);
+        }
+    }
+
+    private TGet GetCachedCookie<TGet>(IPlayer player, string key, TGet defaultValue)
+    {
+        var cacheKey = (player.SteamID, key);
+        if (cookieCache.TryGetValue(cacheKey, out var val))
+        {
+            return (TGet)val;
+        }
+
+        var dbVal = plugin.playerCookies.GetOrDefault(player, key, defaultValue);
+        cookieCache[cacheKey] = dbVal!;
+        return dbVal!;
+    }
+
+    private void SetCachedCookie<TSet>(IPlayer player, string key, TSet value)
+    {
+        var cacheKey = (player.SteamID, key);
+        cookieCache[cacheKey] = value!;
+        plugin.playerCookies.Set(player, key, value);
+    }
+
+    private void ClearPlayerItemCookies(IPlayer player, string itemId)
+    {
+        var normId = NormalizeItemId(itemId);
+        InvalidatePlayerCache(player.SteamID);
+
+        try
+        {
+            plugin.playerCookies.Unset(player, OwnedKey(normId));
+            plugin.playerCookies.Unset(player, EnabledKey(normId));
+            plugin.playerCookies.Unset(player, ExpireAtKey(normId));
+        }
+        catch { }
+
+        try
+        {
+            plugin.playerCookies.Set(player, OwnedKey(normId), false);
+            plugin.playerCookies.Set(player, EnabledKey(normId), false);
+            plugin.playerCookies.Set(player, ExpireAtKey(normId), 0L);
+        }
+        catch { }
+
+        try
+        {
+            plugin.playerCookies.Save(player);
+        }
+        catch { }
+    }
 
     internal void ConfigureLedgerStore(LedgerConfig config, string pluginDataDirectory)
     {
@@ -655,13 +716,13 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
         long? expiresAt = null;
         if (tracksOwnership)
         {
-            plugin.playerCookies.Set(player, OwnedKey(item.Id), true);
-            plugin.playerCookies.Set(player, EnabledKey(item.Id), true);
+            SetCachedCookie(player, OwnedKey(item.Id), true);
+            SetCachedCookie(player, EnabledKey(item.Id), true);
 
             if (item.Duration.HasValue)
             {
                 expiresAt = DateTimeOffset.UtcNow.Add(item.Duration.Value).ToUnixTimeSeconds();
-                plugin.playerCookies.Set(player, ExpireAtKey(item.Id), expiresAt.Value);
+                SetCachedCookie(player, ExpireAtKey(item.Id), expiresAt.Value);
             }
             else
             {
@@ -882,11 +943,10 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             );
         }
 
-        var wasEnabled = plugin.playerCookies.GetOrDefault(player, EnabledKey(item.Id), false);
-        plugin.playerCookies.Set(player, OwnedKey(item.Id), false);
-        plugin.playerCookies.Set(player, EnabledKey(item.Id), false);
-        plugin.playerCookies.Unset(player, ExpireAtKey(item.Id));
-        plugin.playerCookies.Save(player);
+        var wasEnabled = GetCachedCookie(player, EnabledKey(item.Id), false);
+        
+        // Helyes törlési szekvencia az Unset-tel és mentéssel
+        ClearPlayerItemCookies(player, item.Id);
 
         plugin.economyApi.AddPlayerBalance(player.SteamID, WalletKind, sellAmount);
 
@@ -926,8 +986,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             return false;
         }
 
-        var enabled = plugin.playerCookies.GetOrDefault(player, EnabledKey(item.Id), false);
-        return enabled;
+        return GetCachedCookie(player, EnabledKey(item.Id), false);
     }
 
     public bool IsItemOwned(IPlayer player, string itemId)
@@ -952,14 +1011,14 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             return false;
         }
 
-        var owned = plugin.playerCookies.GetOrDefault(player, OwnedKey(item.Id), false);
-        var enabled = plugin.playerCookies.GetOrDefault(player, EnabledKey(item.Id), false);
+        var owned = GetCachedCookie(player, OwnedKey(item.Id), false);
+        var enabled = GetCachedCookie(player, EnabledKey(item.Id), false);
 
         // Migration path: legacy data stored only "enabled".
         if (!owned && enabled)
         {
             owned = true;
-            plugin.playerCookies.Set(player, OwnedKey(item.Id), true);
+            SetCachedCookie(player, OwnedKey(item.Id), true);
             plugin.playerCookies.Save(player);
         }
 
@@ -971,11 +1030,8 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
         var expireAt = GetItemExpireAt(player, item.Id);
         if (expireAt.HasValue && expireAt.Value <= DateTimeOffset.UtcNow.ToUnixTimeSeconds())
         {
-            var wasEnabled = plugin.playerCookies.GetOrDefault(player, EnabledKey(item.Id), false);
-            plugin.playerCookies.Set(player, OwnedKey(item.Id), false);
-            plugin.playerCookies.Set(player, EnabledKey(item.Id), false);
-            plugin.playerCookies.Unset(player, ExpireAtKey(item.Id));
-            plugin.playerCookies.Save(player);
+            var wasEnabled = GetCachedCookie(player, EnabledKey(item.Id), false);
+            ClearPlayerItemCookies(player, item.Id);
 
             if (wasEnabled)
             {
@@ -1015,7 +1071,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             return false;
         }
 
-        var currentEnabled = plugin.playerCookies.GetOrDefault(player, EnabledKey(item.Id), false);
+        var currentEnabled = GetCachedCookie(player, EnabledKey(item.Id), false);
         if (currentEnabled == enabled)
         {
             return true;
@@ -1026,16 +1082,16 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             return false;
         }
 
-        plugin.playerCookies.Set(player, EnabledKey(item.Id), enabled);
+        SetCachedCookie(player, EnabledKey(item.Id), enabled);
 
         if (enabled && item.Duration.HasValue)
         {
             var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            var current = plugin.playerCookies.GetOrDefault(player, ExpireAtKey(item.Id), 0L);
+            var current = GetCachedCookie(player, ExpireAtKey(item.Id), 0L);
             if (current <= now)
             {
                 var newExpire = DateTimeOffset.UtcNow.Add(item.Duration.Value).ToUnixTimeSeconds();
-                plugin.playerCookies.Set(player, ExpireAtKey(item.Id), newExpire);
+                SetCachedCookie(player, ExpireAtKey(item.Id), newExpire);
             }
         }
 
@@ -1061,7 +1117,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             return null;
         }
 
-        var value = plugin.playerCookies.GetOrDefault(player, ExpireAtKey(item.Id), 0L);
+        var value = GetCachedCookie(player, ExpireAtKey(item.Id), 0L);
         return value > 0L ? value : null;
     }
 
@@ -1466,19 +1522,6 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
         return true;
     }
 
-    private void EnsureApis()
-    {
-        if (!EnsureCookiesApi())
-        {
-            throw new InvalidOperationException("Cookies.Player.V1 is not injected.");
-        }
-
-        if (!EnsureEconomyApi())
-        {
-            throw new InvalidOperationException("Economy.API.v1 is not injected.");
-        }
-    }
-
     private ShopTransactionResult Fail(
         ShopTransactionStatus status,
         string message,
@@ -1776,6 +1819,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             return ShopItemTeam.Any;
         }
     }
+
     public string? GetShopPrefix(IPlayer? player)
     {
         if (player == null)
