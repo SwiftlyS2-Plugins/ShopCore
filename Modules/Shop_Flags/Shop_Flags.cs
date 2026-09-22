@@ -22,23 +22,13 @@ public class Shop_Flags : BasePlugin
     private const string TemplateSectionName = "Main";
     private const string DefaultCategory = "Permissions/Flags";
 
-    // Longer resync window for async inventory/cookie load
-    private const int ConnectResyncAttempts = 120;         // 120 * 0.5s = 60s
-    private const float ConnectResyncDelaySeconds = 0.5f;
-
-    // During this window we DO NOT remove existing permissions if ShopCore still reports nothing enabled.
-    // This prevents temporary flags disappearing on reconnect due to early "empty" state.
-    private static readonly TimeSpan RemovalGraceWindow = TimeSpan.FromSeconds(60);
-
     private IShopCoreApiV2? shopApi;
     private bool handlersRegistered;
+    private CancellationTokenSource? _checkTimerCts;
     private readonly HashSet<string> registeredItemIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, FlagItemRuntime> itemRuntimeById = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly Dictionary<ulong, HashSet<string>> activePermissionsBySteam = new();
-    private readonly Dictionary<int, ulong> steamByPlayerId = new();
-    private readonly Dictionary<ulong, DateTime> connectAtUtcBySteam = new();
-
     private FlagsModuleSettings runtimeSettings = new();
 
     public Shop_Flags(ISwiftlyCore core) : base(core) { }
@@ -46,7 +36,6 @@ public class Shop_Flags : BasePlugin
     public override void UseSharedInterface(IInterfaceManager interfaceManager)
     {
         shopApi = null;
-
         if (!interfaceManager.HasSharedInterface(ShopCoreInterfaceKey))
             return;
 
@@ -63,30 +52,42 @@ public class Shop_Flags : BasePlugin
     public override void OnSharedInterfaceInjected(IInterfaceManager interfaceManager)
     {
         if (shopApi == null)
-        {
-            Core.Logger.LogWarning("ShopCore API is not available. Flags items will not be registered.");
             return;
-        }
 
         RegisterItemsAndHandlers();
     }
 
     public override void Load(bool hotReload)
     {
-        Core.Event.OnClientConnected += OnClientConnected;
         Core.Event.OnClientDisconnected += OnClientDisconnected;
 
         if (shopApi is not null && !handlersRegistered)
             RegisterItemsAndHandlers();
+
+        _checkTimerCts?.Cancel();
+        _checkTimerCts = Core.Scheduler.RepeatBySeconds(5f, () => CheckAllPlayers());
     }
 
     public override void Unload()
     {
-        Core.Event.OnClientConnected -= OnClientConnected;
+        _checkTimerCts?.Cancel();
         Core.Event.OnClientDisconnected -= OnClientDisconnected;
 
         RunOnMainThread(RemoveAllTrackedPermissions);
         UnregisterItemsAndHandlers();
+    }
+
+    private void CheckAllPlayers()
+    {
+        if (shopApi == null) return;
+
+        for (var i = 0; i < Core.PlayerManager.PlayerCap; i++)
+        {
+            var player = Core.PlayerManager.GetPlayer(i);
+            if (player == null || player.IsFakeClient || !player.IsValid) continue;
+
+            SyncPlayerPermissions(player);
+        }
     }
 
     private void RegisterItemsAndHandlers()
@@ -124,37 +125,22 @@ public class Shop_Flags : BasePlugin
             );
         }
 
-        var registeredCount = 0;
         foreach (var itemTemplate in moduleConfig.Items)
         {
             if (!TryCreateDefinition(itemTemplate, category, out var definition, out var runtime))
                 continue;
 
             if (!shopApi.RegisterItem(definition))
-            {
-                Core.Logger.LogWarning("Failed to register flag item '{ItemId}'.", definition.Id);
                 continue;
-            }
 
             _ = registeredItemIds.Add(definition.Id);
             itemRuntimeById[definition.Id] = runtime;
-            registeredCount++;
         }
 
         shopApi.OnBeforeItemPurchase += OnBeforeItemPurchase;
-        shopApi.OnItemPurchased += OnItemPurchased;
-        shopApi.OnItemToggled += OnItemToggled;
-        shopApi.OnItemSold += OnItemSold;
-        shopApi.OnItemExpired += OnItemExpired;
-        shopApi.OnItemPreview += OnItemPreview;
         handlersRegistered = true;
 
         RunOnMainThread(SyncAllOnlinePlayers);
-
-        Core.Logger.LogInformation(
-            "Shop_Flags initialized. RegisteredItems={RegisteredItems}",
-            registeredCount
-        );
     }
 
     private void UnregisterItemsAndHandlers()
@@ -163,11 +149,6 @@ public class Shop_Flags : BasePlugin
             return;
 
         shopApi.OnBeforeItemPurchase -= OnBeforeItemPurchase;
-        shopApi.OnItemPurchased -= OnItemPurchased;
-        shopApi.OnItemToggled -= OnItemToggled;
-        shopApi.OnItemSold -= OnItemSold;
-        shopApi.OnItemExpired -= OnItemExpired;
-        shopApi.OnItemPreview -= OnItemPreview;
 
         foreach (var itemId in registeredItemIds)
             _ = shopApi.UnregisterItem(itemId);
@@ -196,57 +177,6 @@ public class Shop_Flags : BasePlugin
         context.Block($"{GetPrefix(player)} {loc["error.permission", shopApi?.GetItemDisplayName(player, context.Item) ?? context.Item.DisplayName, runtime.RequiredPermission]}");
     }
 
-    private void OnItemPurchased(IPlayer player, ShopItemDefinition item)
-    {
-        if (!registeredItemIds.Contains(item.Id))
-            return;
-
-        RunOnMainThread(() => SyncPlayerPermissions(player));
-    }
-
-    private void OnItemToggled(IPlayer player, ShopItemDefinition item, bool enabled)
-    {
-        if (!registeredItemIds.Contains(item.Id))
-            return;
-
-        RunOnMainThread(() => SyncPlayerPermissions(player));
-    }
-
-    private void OnItemSold(IPlayer player, ShopItemDefinition item, decimal creditedAmount)
-    {
-        if (!registeredItemIds.Contains(item.Id))
-            return;
-
-        RunOnMainThread(() => SyncPlayerPermissions(player));
-    }
-
-    private void OnItemExpired(IPlayer player, ShopItemDefinition item)
-    {
-        if (!registeredItemIds.Contains(item.Id))
-            return;
-
-        RunOnMainThread(() => SyncPlayerPermissions(player));
-    }
-
-    private void OnItemPreview(IPlayer player, ShopItemDefinition item)
-    {
-        if (!registeredItemIds.Contains(item.Id))
-            return;
-
-        if (!itemRuntimeById.TryGetValue(item.Id, out var runtime))
-            return;
-
-        RunOnMainThread(() =>
-        {
-            if (!player.IsValid || player.IsFakeClient)
-                return;
-
-            player.SendChat(
-                $"{GetPrefix(player)} {Core.Translation.GetPlayerLocalizer(player)["preview.info", shopApi?.GetItemDisplayName(player, item) ?? item.DisplayName, runtime.GrantedPermission]}"
-            );
-        });
-    }
-
     private string GetPrefix(IPlayer player)
     {
         var loc = Core.Translation.GetPlayerLocalizer(player);
@@ -260,64 +190,23 @@ public class Shop_Flags : BasePlugin
         return loc["shop.prefix"];
     }
 
-    private void OnClientConnected(IOnClientConnectedEvent @event)
+    private void OnClientDisconnected(IOnClientDisconnectedEvent @event)
     {
         RunOnMainThread(() =>
         {
             var player = Core.PlayerManager.GetPlayer(@event.PlayerId);
-            if (player == null || !player.IsValid || player.IsFakeClient)
-                return;
+            if (player == null || player.IsFakeClient) return;
 
-            steamByPlayerId[player.PlayerID] = player.SteamID;
-            connectAtUtcBySteam[player.SteamID] = DateTime.UtcNow;
-
-            // Immediate sync
-            SyncPlayerPermissions(player);
-
-            // Frequent retry loop for up to 60s
-            ScheduleConnectResync(player, attempt: 1);
-        });
-    }
-
-    private void ScheduleConnectResync(IPlayer player, int attempt)
-    {
-        if (attempt > ConnectResyncAttempts)
-            return;
-
-        if (!player.IsValid || player.IsFakeClient)
-            return;
-
-        var expectedSteam = player.SteamID;
-        var expectedPlayerId = player.PlayerID;
-
-        Core.Scheduler.DelayBySeconds(ConnectResyncDelaySeconds, () =>
-        {
-            RunOnMainThread(() =>
+            if (activePermissionsBySteam.TryGetValue(player.SteamID, out var permissions))
             {
-                var current = Core.PlayerManager.GetPlayer(expectedPlayerId);
-                if (current == null || !current.IsValid || current.IsFakeClient)
-                    return;
-
-                if (current.SteamID != expectedSteam)
-                    return;
-
-                SyncPlayerPermissions(current);
-                ScheduleConnectResync(current, attempt + 1);
-            });
-        });
-    }
-
-    private void OnClientDisconnected(IOnClientDisconnectedEvent @event)
-    {
-        // IMPORTANT FIX:
-        // Do NOT remove flags on disconnect, because ShopCore may not have loaded the temporary item state on reconnect yet.
-        // We'll reconcile on connect once ShopCore state becomes available.
-        RunOnMainThread(() =>
-        {
-            if (steamByPlayerId.TryGetValue(@event.PlayerId, out var steamId))
-            {
-                steamByPlayerId.Remove(@event.PlayerId);
-                // keep connectAtUtcBySteam + activePermissionsBySteam so permissions persist across reconnect
+                foreach (var permission in permissions)
+                {
+                    if (Core.Permission.PlayerHasPermission(player.SteamID, permission))
+                    {
+                        Core.Permission.RemovePermission(player.SteamID, permission);
+                    }
+                }
+                activePermissionsBySteam.Remove(player.SteamID);
             }
         });
     }
@@ -326,14 +215,10 @@ public class Shop_Flags : BasePlugin
     {
         foreach (var player in Core.PlayerManager.GetAllValidPlayers())
         {
-            if (player.IsFakeClient)
+            if (player.IsFakeClient || !player.IsValid)
                 continue;
 
-            steamByPlayerId[player.PlayerID] = player.SteamID;
-            connectAtUtcBySteam[player.SteamID] = DateTime.UtcNow;
-
             SyncPlayerPermissions(player);
-            ScheduleConnectResync(player, attempt: 1);
         }
     }
 
@@ -341,8 +226,6 @@ public class Shop_Flags : BasePlugin
     {
         if (shopApi == null || !player.IsValid || player.IsFakeClient)
             return;
-
-        steamByPlayerId[player.PlayerID] = player.SteamID;
 
         var desiredPermissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var itemId in registeredItemIds)
@@ -365,41 +248,19 @@ public class Shop_Flags : BasePlugin
             activePermissionsBySteam[player.SteamID] = activePermissions;
         }
 
-        // Add missing
         foreach (var permission in desiredPermissions)
         {
-            if (activePermissions.Contains(permission))
-                continue;
+            if (!activePermissions.Contains(permission))
+            {
+                activePermissions.Add(permission);
+            }
 
             if (!Core.Permission.PlayerHasPermission(player.SteamID, permission))
             {
                 Core.Permission.AddPermission(player.SteamID, permission);
-                Core.Logger.LogInformation(
-                    "Added permission '{Permission}' to player '{PlayerName}' ({SteamId}) from Shop_Flags.",
-                    permission,
-                    player.Controller.PlayerName,
-                    player.SteamID
-                );
             }
-
-            activePermissions.Add(permission);
         }
 
-        // Removal gating (critical for temporary items on reconnect)
-        bool withinGrace = false;
-        if (connectAtUtcBySteam.TryGetValue(player.SteamID, out var connectedUtc))
-        {
-            withinGrace = (DateTime.UtcNow - connectedUtc) <= RemovalGraceWindow;
-        }
-
-        // If we currently have active perms BUT ShopCore reports nothing enabled,
-        // do not remove yet during grace window.
-        if (withinGrace && activePermissions.Count > 0 && desiredPermissions.Count == 0)
-        {
-            return;
-        }
-
-        // Remove no-longer-desired
         foreach (var permission in activePermissions.ToArray())
         {
             if (desiredPermissions.Contains(permission))
@@ -408,12 +269,6 @@ public class Shop_Flags : BasePlugin
             if (Core.Permission.PlayerHasPermission(player.SteamID, permission))
             {
                 Core.Permission.RemovePermission(player.SteamID, permission);
-                Core.Logger.LogInformation(
-                    "Removed permission '{Permission}' from player '{PlayerName}' ({SteamId}) from Shop_Flags.",
-                    permission,
-                    player.Controller.PlayerName,
-                    player.SteamID
-                );
             }
 
             activePermissions.Remove(permission);
@@ -445,8 +300,6 @@ public class Shop_Flags : BasePlugin
             RemoveTrackedPermissions(steamId);
 
         activePermissionsBySteam.Clear();
-        steamByPlayerId.Clear();
-        connectAtUtcBySteam.Clear();
     }
 
     private void RunOnMainThread(Action action)
@@ -464,11 +317,7 @@ public class Shop_Flags : BasePlugin
         });
     }
 
-    private bool TryCreateDefinition(
-        FlagItemTemplate itemTemplate,
-        string category,
-        out ShopItemDefinition definition,
-        out FlagItemRuntime runtime)
+    private bool TryCreateDefinition(FlagItemTemplate itemTemplate, string category, out ShopItemDefinition definition, out FlagItemRuntime runtime)
     {
         definition = default!;
         runtime = default;
@@ -477,33 +326,11 @@ public class Shop_Flags : BasePlugin
             return false;
 
         var itemId = itemTemplate.Id.Trim();
-        if (itemTemplate.Price <= 0)
-        {
-            Core.Logger.LogWarning("Skipping item '{ItemId}' because Price must be greater than 0.", itemId);
+        if (itemTemplate.Price <= 0 || string.IsNullOrWhiteSpace(itemTemplate.GrantedPermission))
             return false;
-        }
 
-        if (string.IsNullOrWhiteSpace(itemTemplate.GrantedPermission))
-        {
-            Core.Logger.LogWarning("Skipping item '{ItemId}' because GrantedPermission is empty.", itemId);
+        if (!Enum.TryParse(itemTemplate.Type, ignoreCase: true, out ShopItemType itemType) || itemType == ShopItemType.Consumable)
             return false;
-        }
-
-        if (!Enum.TryParse(itemTemplate.Type, ignoreCase: true, out ShopItemType itemType))
-        {
-            Core.Logger.LogWarning("Skipping item '{ItemId}' because Type '{Type}' is invalid.", itemId, itemTemplate.Type);
-            return false;
-        }
-
-        if (itemType == ShopItemType.Consumable)
-        {
-            Core.Logger.LogWarning(
-                "Skipping item '{ItemId}' because flag items cannot use Type '{Type}'.",
-                itemId,
-                itemType
-            );
-            return false;
-        }
 
         if (!Enum.TryParse(itemTemplate.Team, ignoreCase: true, out ShopItemTeam team))
             team = ShopItemTeam.Any;
@@ -513,17 +340,9 @@ public class Shop_Flags : BasePlugin
             duration = TimeSpan.FromSeconds(itemTemplate.DurationSeconds);
 
         if (itemType == ShopItemType.Temporary && !duration.HasValue)
-        {
-            Core.Logger.LogWarning(
-                "Skipping item '{ItemId}' because Temporary items require DurationSeconds > 0.",
-                itemId
-            );
             return false;
-        }
 
-        decimal? sellPrice = null;
-        if (itemTemplate.SellPrice.HasValue && itemTemplate.SellPrice.Value >= 0)
-            sellPrice = itemTemplate.SellPrice.Value;
+        decimal? sellPrice = itemTemplate.SellPrice is >= 0 ? itemTemplate.SellPrice.Value : null;
 
         definition = new ShopItemDefinition(
             Id: itemId,
@@ -577,21 +396,12 @@ public class Shop_Flags : BasePlugin
         {
             var hours = (int)ts.TotalHours;
             var minutes = ts.Minutes;
-            return minutes > 0
-                ? $"{hours} Hour{(hours == 1 ? "" : "s")} {minutes} Minute{(minutes == 1 ? "" : "s")}"
-                : $"{hours} Hour{(hours == 1 ? "" : "s")}";
+            return minutes > 0 ? $"{hours}h {minutes}m" : $"{hours}h";
         }
-
         if (ts.TotalMinutes >= 1)
-        {
-            var minutes = (int)ts.TotalMinutes;
-            var seconds = ts.Seconds;
-            return seconds > 0
-                ? $"{minutes} Minute{(minutes == 1 ? "" : "s")} {seconds} Second{(seconds == 1 ? "" : "s")}"
-                : $"{minutes} Minute{(minutes == 1 ? "" : "s")}";
-        }
+            return $"{ts.Minutes}m";
 
-        return $"{ts.Seconds} Second{(ts.Seconds == 1 ? "" : "s")}";
+        return $"{ts.Seconds}s";
     }
 
     private static void NormalizeConfig(FlagsModuleConfig config)
@@ -604,12 +414,8 @@ public class Shop_Flags : BasePlugin
     {
         return new FlagsModuleConfig
         {
-            Settings = new FlagsModuleSettings
-            {
-                Category = DefaultCategory
-            },
-            Items =
-            [
+            Settings = new FlagsModuleSettings { Category = DefaultCategory },
+            Items = [
                 new FlagItemTemplate
                 {
                     Id = "flag_slot_hourly",
