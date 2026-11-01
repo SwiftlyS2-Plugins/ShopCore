@@ -1,13 +1,16 @@
 using ShopCore.Contract;
-using SwiftlyS2.Core.Menus.OptionsBase;
 using SwiftlyS2.Shared.Commands;
-using SwiftlyS2.Shared.Menus;
+using SwiftlyS2.Shared.Menu;
+using SwiftlyS2.Shared.Menu.Components;
 using SwiftlyS2.Shared.Players;
+using SwiftlyS2.Shared.SchemaDefinitions;
 
 namespace ShopCore;
 
 public partial class ShopCore
 {
+    private const string MenuIdPrefix = "shopcore.";
+
     private readonly record struct InventoryItemSnapshot(ShopItemDefinition Item, long? ExpireAtUnixSeconds);
 
     private void HandleOpenShopMenuCommand(ICommandContext context)
@@ -29,7 +32,7 @@ public partial class ShopCore
             return;
         }
 
-        Core.MenusAPI.OpenMenuForPlayer(player, BuildBuyCategoryMenu(player));
+        _ = BuildBuyCategoryMenu(player).Open(player);
     }
 
     private void HandleOpenInventoryMenuCommand(ICommandContext context)
@@ -40,7 +43,7 @@ public partial class ShopCore
             return;
         }
 
-        Core.MenusAPI.OpenMenuForPlayer(player, BuildInventoryCategoryMenu(player));
+        _ = BuildInventoryCategoryMenu(player).Open(player);
     }
 
     private void HandleShowCreditsCommand(ICommandContext context)
@@ -55,46 +58,36 @@ public partial class ShopCore
         SendLocalizedChat(player, "shop.credits.current", FormatCredits(credits));
     }
 
-    private void OpenShopMainMenu(IPlayer player, IMenuAPI? parent = null)
+    private void OpenShopMainMenu(IPlayer player)
     {
-        Core.MenusAPI.OpenMenuForPlayer(player, BuildMainMenu(player, parent));
+        _ = BuildMainMenu(player).Open(player);
     }
 
-    private IMenuAPI BuildMainMenu(IPlayer player, IMenuAPI? parent = null)
+    private IMenu BuildMainMenu(IPlayer player)
     {
-        var builder = CreateBaseMenuBuilder(player, "shop.menu.main.title", parent);
+        var builder = CreateBaseMenuBuilder(player, "main", "shop.menu.main.title");
         var credits = shopApi.GetCredits(player);
 
-        _ = builder.AddOption(new TextMenuOption(
+        _ = builder.Add(new TextComponent(
             Localize(player, "shop.menu.main.credits", FormatCredits(credits)))
         {
             Enabled = false
         });
 
-        var buyButton = new ButtonMenuOption(Localize(player, "shop.menu.main.buy"));
-        buyButton.Click += (sender, args) =>
-        {
-            var parentMenu = (sender as IMenuOption)?.Menu;
-            Core.MenusAPI.OpenMenuForPlayer(args.Player, BuildBuyCategoryMenu(args.Player, parentMenu));
-            return ValueTask.CompletedTask;
-        };
-        _ = builder.AddOption(buyButton);
+        _ = builder.Add(new SubmenuComponent(
+            Localize(player, "shop.menu.main.buy"),
+            session => BuildBuyCategoryMenu(session.Player)));
 
-        var inventoryButton = new ButtonMenuOption(Localize(player, "shop.menu.main.inventory"));
-        inventoryButton.Click += (sender, args) =>
-        {
-            var parentMenu = (sender as IMenuOption)?.Menu;
-            Core.MenusAPI.OpenMenuForPlayer(args.Player, BuildInventoryCategoryMenu(args.Player, parentMenu));
-            return ValueTask.CompletedTask;
-        };
-        _ = builder.AddOption(inventoryButton);
+        _ = builder.Add(new SubmenuComponent(
+            Localize(player, "shop.menu.main.inventory"),
+            session => BuildInventoryCategoryMenu(session.Player)));
 
-        return builder.Build();
+        return BuildMenu(player, builder);
     }
 
-    private IMenuAPI BuildBuyCategoryMenu(IPlayer player, IMenuAPI? parent = null)
+    private IMenu BuildBuyCategoryMenu(IPlayer player)
     {
-        var builder = CreateBaseMenuBuilder(player, "shop.menu.buy.title", parent);
+        var builder = CreateBaseMenuBuilder(player, "buy.categories", "shop.menu.buy.title");
         var items = shopApi.GetItems()
             .Where(item => shopApi.IsItemVisibleToPlayer(player, item))
             .ToArray();
@@ -106,8 +99,8 @@ public partial class ShopCore
 
         if (grouped.Length == 0)
         {
-            _ = builder.AddOption(new TextMenuOption(Localize(player, "shop.menu.empty.buy")) { Enabled = false });
-            return builder.Build();
+            _ = builder.Add(new TextComponent(Localize(player, "shop.menu.empty.buy")) { Enabled = false });
+            return BuildMenu(player, builder);
         }
 
         foreach (var categoryGroup in grouped)
@@ -115,20 +108,15 @@ public partial class ShopCore
             var category = categoryGroup.Key;
             var displayCategory = LocalizeCategorySegment(player, category);
             var count = categoryGroup.Count();
-            var categoryButton = new ButtonMenuOption(Localize(player, "shop.menu.category.entry", displayCategory, count));
-            categoryButton.Click += (sender, args) =>
-            {
-                var parentMenu = (sender as IMenuOption)?.Menu;
-                Core.MenusAPI.OpenMenuForPlayer(args.Player, BuildBuySubcategoryOrItemsMenu(args.Player, category, parentMenu));
-                return ValueTask.CompletedTask;
-            };
-            _ = builder.AddOption(categoryButton);
+            _ = builder.Add(new SubmenuComponent(
+                Localize(player, "shop.menu.category.entry", displayCategory, count),
+                session => BuildBuySubcategoryOrItemsMenu(session.Player, category)));
         }
 
-        return builder.Build();
+        return BuildMenu(player, builder);
     }
 
-    private IMenuAPI BuildBuySubcategoryOrItemsMenu(IPlayer player, string category, IMenuAPI? parent = null)
+    private IMenu BuildBuySubcategoryOrItemsMenu(IPlayer player, string category)
     {
         var items = shopApi.GetItems()
             .Where(item => shopApi.IsItemVisibleToPlayer(player, item) && CategoryMatches(item, category, null))
@@ -137,9 +125,9 @@ public partial class ShopCore
         if (items.Length == 0)
         {
             var localizedCategory = LocalizeCategorySegment(player, category);
-            var emptyBuilder = CreateBaseMenuBuilder(player, "shop.menu.buy.category.title", parent, localizedCategory);
-            _ = emptyBuilder.AddOption(new TextMenuOption(Localize(player, "shop.menu.empty.category", localizedCategory)) { Enabled = false });
-            return emptyBuilder.Build();
+            var emptyBuilder = CreateBaseMenuBuilder(player, "buy.subcategories", "shop.menu.buy.category.title", localizedCategory);
+            _ = emptyBuilder.Add(new TextComponent(Localize(player, "shop.menu.empty.category", localizedCategory)) { Enabled = false });
+            return BuildMenu(player, emptyBuilder);
         }
 
         var grouped = items
@@ -150,11 +138,11 @@ public partial class ShopCore
         var hasSubcategories = grouped.Any(group => !string.IsNullOrWhiteSpace(group.Key));
         if (!hasSubcategories)
         {
-            return BuildBuyItemsMenu(player, category, null, parent);
+            return BuildBuyItemsMenu(player, category);
         }
 
         var localizedCategoryTitle = LocalizeCategorySegment(player, category);
-        var builder = CreateBaseMenuBuilder(player, "shop.menu.buy.category.title", parent, localizedCategoryTitle);
+        var builder = CreateBaseMenuBuilder(player, "buy.subcategories", "shop.menu.buy.category.title", localizedCategoryTitle);
         foreach (var subgroup in grouped)
         {
             var subcategory = string.IsNullOrWhiteSpace(subgroup.Key) ? null : subgroup.Key;
@@ -162,23 +150,18 @@ public partial class ShopCore
                 ? Localize(player, "shop.menu.subcategory.general")
                 : LocalizeSubcategorySegment(player, subcategory);
             var count = subgroup.Count();
-            var button = new ButtonMenuOption(Localize(player, "shop.menu.category.entry", displayName, count));
-            button.Click += (sender, args) =>
-            {
-                var parentMenu = (sender as IMenuOption)?.Menu;
-                Core.MenusAPI.OpenMenuForPlayer(args.Player, BuildBuyItemsMenu(args.Player, category, subcategory, parentMenu));
-                return ValueTask.CompletedTask;
-            };
-            _ = builder.AddOption(button);
+            _ = builder.Add(new SubmenuComponent(
+                Localize(player, "shop.menu.category.entry", displayName, count),
+                session => BuildBuyItemsMenu(session.Player, category, subcategory)));
         }
 
-        return builder.Build();
+        return BuildMenu(player, builder);
     }
 
-    private IMenuAPI BuildBuyItemsMenu(IPlayer player, string category, string? subcategory = null, IMenuAPI? parent = null)
+    private IMenu BuildBuyItemsMenu(IPlayer player, string category, string? subcategory = null)
     {
         var categoryPathText = BuildLocalizedCategoryPathText(player, category, subcategory);
-        var builder = CreateBaseMenuBuilder(player, "shop.menu.buy.category.title", parent, categoryPathText);
+        var builder = CreateBaseMenuBuilder(player, "buy.items", "shop.menu.buy.category.title", categoryPathText);
         var items = shopApi.GetItems()
             .Where(item => shopApi.IsItemVisibleToPlayer(player, item))
             .Where(item => CategoryMatches(item, category, subcategory))
@@ -188,72 +171,59 @@ public partial class ShopCore
 
         if (items.Length == 0)
         {
-            _ = builder.AddOption(new TextMenuOption(Localize(player, "shop.menu.empty.category", categoryPathText)) { Enabled = false });
-            return builder.Build();
+            _ = builder.Add(new TextComponent(Localize(player, "shop.menu.empty.category", categoryPathText)) { Enabled = false });
+            return BuildMenu(player, builder);
         }
 
         foreach (var item in items)
         {
-            var itemButton = new ButtonMenuOption(BuildBuyItemText(player, item));
-            itemButton.Comment = BuildBuyItemComment(player, item);
-            itemButton.Click += (sender, args) =>
+            _ = builder.Add(new SubmenuComponent(
+                BuildBuyItemText(player, item),
+                session => BuildBuyItemActionMenu(session.Player, item, category, subcategory))
             {
-                var parentMenu = (sender as IMenuOption)?.Menu;
-                Core.MenusAPI.OpenMenuForPlayer(args.Player, BuildBuyItemActionMenu(args.Player, item, category, subcategory, parentMenu));
-                return ValueTask.CompletedTask;
-            };
-            _ = builder.AddOption(itemButton);
+                Comment = BuildBuyItemComment(player, item)
+            });
         }
 
-        return builder.Build();
+        return BuildMenu(player, builder);
     }
 
-    private IMenuAPI BuildBuyItemActionMenu(
+    private IMenu BuildBuyItemActionMenu(
         IPlayer player,
         ShopItemDefinition item,
         string category,
-        string? subcategory = null,
-        IMenuAPI? parent = null)
+        string? subcategory)
     {
-        var builder = CreateBaseMenuBuilder(player, "shop.menu.buy.item.title", parent, shopApi.GetItemDisplayName(player, item));
+        var builder = CreateBaseMenuBuilder(player, "buy.item", "shop.menu.buy.item.title", shopApi.GetItemDisplayName(player, item));
 
-        var infoOption = new TextMenuOption(BuildBuyItemText(player, item))
+        _ = builder.Add(new TextComponent(BuildBuyItemText(player, item))
         {
             Enabled = false,
             Comment = BuildBuyItemComment(player, item)
-        };
-        _ = builder.AddOption(infoOption);
+        });
 
         if (item.AllowPreview)
         {
-            var previewButton = new ButtonMenuOption(Localize(player, "shop.menu.buy.item.preview"));
-            previewButton.Click += (sender, args) =>
+            _ = builder.Add(new ButtonComponent(Localize(player, "shop.menu.buy.item.preview"), ctx =>
             {
-                _ = shopApi.PreviewItem(args.Player, item.Id);
-                var currentMenu = (sender as IMenuOption)?.Menu;
-                var parentMenu = currentMenu?.Parent.ParentMenu ?? parent;
-                Core.MenusAPI.OpenMenuForPlayer(args.Player, BuildBuyItemActionMenu(args.Player, item, category, subcategory, parentMenu));
+                _ = shopApi.PreviewItem(ctx.Player, item.Id);
                 return ValueTask.CompletedTask;
-            };
-            _ = builder.AddOption(previewButton);
+            }));
         }
 
-        var buyButton = new ButtonMenuOption(Localize(player, "shop.menu.buy.item.buy", FormatCredits(item.Price)));
-        buyButton.Click += (sender, args) =>
+        _ = builder.Add(new ButtonComponent(Localize(player, "shop.menu.buy.item.buy", FormatCredits(item.Price)), ctx =>
         {
-            _ = shopApi.PurchaseItem(args.Player, item.Id);
-            var listParentMenu = parent?.Parent.ParentMenu;
-            Core.MenusAPI.OpenMenuForPlayer(args.Player, BuildBuyItemsMenu(args.Player, category, subcategory, listParentMenu));
+            _ = shopApi.PurchaseItem(ctx.Player, item.Id);
+            OpenInPlaceOfParent(ctx, BuildBuyItemsMenu(ctx.Player, category, subcategory));
             return ValueTask.CompletedTask;
-        };
-        _ = builder.AddOption(buyButton);
+        }));
 
-        return builder.Build();
+        return BuildMenu(player, builder);
     }
 
-    private IMenuAPI BuildInventoryCategoryMenu(IPlayer player, IMenuAPI? parent = null)
+    private IMenu BuildInventoryCategoryMenu(IPlayer player)
     {
-        var builder = CreateBaseMenuBuilder(player, "shop.menu.inventory.title", parent);
+        var builder = CreateBaseMenuBuilder(player, "inventory.categories", "shop.menu.inventory.title");
         var inventorySnapshot = BuildInventorySnapshot(player);
 
         var grouped = inventorySnapshot
@@ -263,8 +233,8 @@ public partial class ShopCore
 
         if (grouped.Length == 0)
         {
-            _ = builder.AddOption(new TextMenuOption(Localize(player, "shop.menu.empty.inventory")) { Enabled = false });
-            return builder.Build();
+            _ = builder.Add(new TextComponent(Localize(player, "shop.menu.empty.inventory")) { Enabled = false });
+            return BuildMenu(player, builder);
         }
 
         foreach (var categoryGroup in grouped)
@@ -272,24 +242,18 @@ public partial class ShopCore
             var category = categoryGroup.Key;
             var displayCategory = LocalizeCategorySegment(player, category);
             var count = categoryGroup.Count();
-            var categoryButton = new ButtonMenuOption(Localize(player, "shop.menu.category.entry", displayCategory, count));
-            categoryButton.Click += (sender, args) =>
-            {
-                var parentMenu = (sender as IMenuOption)?.Menu;
-                Core.MenusAPI.OpenMenuForPlayer(args.Player, BuildInventorySubcategoryOrItemsMenu(args.Player, category, inventorySnapshot, parentMenu));
-                return ValueTask.CompletedTask;
-            };
-            _ = builder.AddOption(categoryButton);
+            _ = builder.Add(new SubmenuComponent(
+                Localize(player, "shop.menu.category.entry", displayCategory, count),
+                session => BuildInventorySubcategoryOrItemsMenu(session.Player, category, inventorySnapshot)));
         }
 
-        return builder.Build();
+        return BuildMenu(player, builder);
     }
 
-    private IMenuAPI BuildInventorySubcategoryOrItemsMenu(
+    private IMenu BuildInventorySubcategoryOrItemsMenu(
         IPlayer player,
         string category,
-        IReadOnlyCollection<InventoryItemSnapshot>? inventorySnapshot = null,
-        IMenuAPI? parent = null)
+        IReadOnlyCollection<InventoryItemSnapshot>? inventorySnapshot = null)
     {
         var snapshot = inventorySnapshot ?? BuildInventorySnapshot(player);
         var items = snapshot
@@ -299,9 +263,9 @@ public partial class ShopCore
         if (items.Length == 0)
         {
             var localizedCategory = LocalizeCategorySegment(player, category);
-            var emptyBuilder = CreateBaseMenuBuilder(player, "shop.menu.inventory.category.title", parent, localizedCategory);
-            _ = emptyBuilder.AddOption(new TextMenuOption(Localize(player, "shop.menu.empty.category_inventory", localizedCategory)) { Enabled = false });
-            return emptyBuilder.Build();
+            var emptyBuilder = CreateBaseMenuBuilder(player, "inventory.subcategories", "shop.menu.inventory.category.title", localizedCategory);
+            _ = emptyBuilder.Add(new TextComponent(Localize(player, "shop.menu.empty.category_inventory", localizedCategory)) { Enabled = false });
+            return BuildMenu(player, emptyBuilder);
         }
 
         var grouped = items
@@ -312,11 +276,11 @@ public partial class ShopCore
         var hasSubcategories = grouped.Any(group => !string.IsNullOrWhiteSpace(group.Key));
         if (!hasSubcategories)
         {
-            return BuildInventoryItemsMenu(player, category, null, snapshot, parent);
+            return BuildInventoryItemsMenu(player, category, null, snapshot);
         }
 
         var localizedCategoryTitle = LocalizeCategorySegment(player, category);
-        var builder = CreateBaseMenuBuilder(player, "shop.menu.inventory.category.title", parent, localizedCategoryTitle);
+        var builder = CreateBaseMenuBuilder(player, "inventory.subcategories", "shop.menu.inventory.category.title", localizedCategoryTitle);
         foreach (var subgroup in grouped)
         {
             var subcategory = string.IsNullOrWhiteSpace(subgroup.Key) ? null : subgroup.Key;
@@ -324,28 +288,22 @@ public partial class ShopCore
                 ? Localize(player, "shop.menu.subcategory.general")
                 : LocalizeSubcategorySegment(player, subcategory);
             var count = subgroup.Count();
-            var button = new ButtonMenuOption(Localize(player, "shop.menu.category.entry", displayName, count));
-            button.Click += (sender, args) =>
-            {
-                var parentMenu = (sender as IMenuOption)?.Menu;
-                Core.MenusAPI.OpenMenuForPlayer(args.Player, BuildInventoryItemsMenu(args.Player, category, subcategory, snapshot, parentMenu));
-                return ValueTask.CompletedTask;
-            };
-            _ = builder.AddOption(button);
+            _ = builder.Add(new SubmenuComponent(
+                Localize(player, "shop.menu.category.entry", displayName, count),
+                session => BuildInventoryItemsMenu(session.Player, category, subcategory, snapshot)));
         }
 
-        return builder.Build();
+        return BuildMenu(player, builder);
     }
 
-    private IMenuAPI BuildInventoryItemsMenu(
+    private IMenu BuildInventoryItemsMenu(
         IPlayer player,
         string category,
         string? subcategory = null,
-        IReadOnlyCollection<InventoryItemSnapshot>? inventorySnapshot = null,
-        IMenuAPI? parent = null)
+        IReadOnlyCollection<InventoryItemSnapshot>? inventorySnapshot = null)
     {
         var categoryPathText = BuildLocalizedCategoryPathText(player, category, subcategory);
-        var builder = CreateBaseMenuBuilder(player, "shop.menu.inventory.category.title", parent, categoryPathText);
+        var builder = CreateBaseMenuBuilder(player, "inventory.items", "shop.menu.inventory.category.title", categoryPathText);
         var snapshot = inventorySnapshot ?? BuildInventorySnapshot(player);
         var items = snapshot
             .Where(entry => CategoryMatches(entry.Item, category, subcategory))
@@ -354,120 +312,156 @@ public partial class ShopCore
 
         if (items.Length == 0)
         {
-            _ = builder.AddOption(new TextMenuOption(Localize(player, "shop.menu.empty.category_inventory", categoryPathText)) { Enabled = false });
-            return builder.Build();
+            _ = builder.Add(new TextComponent(Localize(player, "shop.menu.empty.category_inventory", categoryPathText)) { Enabled = false });
+            return BuildMenu(player, builder);
         }
 
         foreach (var entry in items)
         {
             var item = entry.Item;
-            var button = new ButtonMenuOption(BuildInventoryItemText(player, item));
-            button.Comment = BuildInventoryItemComment(player, item, entry.ExpireAtUnixSeconds);
-            button.BeforeFormat += (sender, args) =>
+            _ = builder.Add(new SubmenuComponent(
+                BuildInventoryItemText(player, item),
+                session => BuildInventoryItemActionMenu(session.Player, item, category, subcategory))
             {
-                args.CustomText = BuildInventoryItemText(args.Player, item);
-            };
-            button.Click += (sender, args) =>
-            {
-                var parentMenu = (sender as IMenuOption)?.Menu;
-                Core.MenusAPI.OpenMenuForPlayer(args.Player, BuildInventoryItemActionMenu(args.Player, item, category, subcategory, parentMenu));
-                return ValueTask.CompletedTask;
-            };
-            _ = builder.AddOption(button);
+                Comment = BuildInventoryItemComment(player, item, entry.ExpireAtUnixSeconds),
+                Overflow = MenuTextOverflow.None
+            });
         }
 
-        return builder.Build();
+        return BuildMenu(player, builder);
     }
 
-    private IMenuAPI BuildInventoryItemActionMenu(
+    private IMenu BuildInventoryItemActionMenu(
         IPlayer player,
         ShopItemDefinition item,
         string category,
-        string? subcategory = null,
-        IMenuAPI? parent = null)
+        string? subcategory)
     {
-        var builder = CreateBaseMenuBuilder(player, "shop.menu.inventory.item.title", parent, shopApi.GetItemDisplayName(player, item));
+        var builder = CreateBaseMenuBuilder(player, "inventory.item", "shop.menu.inventory.item.title", shopApi.GetItemDisplayName(player, item));
         var isEnabled = item.IsEquipable && shopApi.IsItemEnabled(player, item.Id);
         var expireAt = item.Duration.HasValue ? shopApi.GetItemExpireAt(player, item.Id) : null;
 
-        var infoOption = new TextMenuOption(BuildInventoryItemInfoText(player, isEnabled))
+        _ = builder.Add(new TextComponent(BuildInventoryItemInfoText(player, isEnabled))
         {
             Enabled = false
-        };
-        _ = builder.AddOption(infoOption);
+        });
 
-        var durationInfoOption = new TextMenuOption(BuildInventoryItemDurationInfoText(player, item, expireAt))
+        _ = builder.Add(new CountdownTextComponent
         {
-            Enabled = false
-        };
-        durationInfoOption.BeforeFormat += (sender, args) =>
-        {
-            args.CustomText = BuildInventoryItemDurationInfoText(args.Player, item, expireAt);
-        };
-        _ = builder.AddOption(durationInfoOption);
+            Enabled = false,
+            Overflow = MenuTextOverflow.None,
+            TextProvider = session => BuildInventoryItemDurationInfoText(session.Player, item, expireAt)
+        });
 
-        var toggleButton = new ButtonMenuOption(
+        // Rebuilt rather than updated in place: IsItemEnabled expires the item as a side effect, so it must not run per frame.
+        _ = builder.Add(new ButtonComponent(
             isEnabled
                 ? Localize(player, "shop.menu.inventory.item.toggle.disable")
-                : Localize(player, "shop.menu.inventory.item.toggle.enable")
-        );
-        toggleButton.Click += (sender, args) =>
-        {
-            var nextEnabled = !isEnabled;
-            _ = shopApi.SetItemEnabled(args.Player, item.Id, nextEnabled);
-            var parentMenu = (sender as IMenuOption)?.Menu;
-            Core.MenusAPI.OpenMenuForPlayer(args.Player, BuildInventoryItemActionMenu(args.Player, item, category, subcategory, parentMenu));
-            return ValueTask.CompletedTask;
-        };
-        _ = builder.AddOption(toggleButton);
+                : Localize(player, "shop.menu.inventory.item.toggle.enable"),
+            ctx =>
+            {
+                _ = shopApi.SetItemEnabled(ctx.Player, item.Id, !isEnabled);
+                var focusedIndex = ctx.Session.FocusedIndex;
+                var refreshed = BuildInventoryItemActionMenu(ctx.Player, item, category, subcategory);
+                refreshed.Parent = ctx.Menu.Parent;
+                _ = refreshed.Open(ctx.Player).SetFocus(focusedIndex);
+                return ValueTask.CompletedTask;
+            }));
 
         if (Settings.Behavior.AllowSelling && item.CanBeSold)
         {
             var sellAmount = item.SellPrice ?? Math.Round(item.Price * Settings.Behavior.DefaultSellRefundRatio, 0, MidpointRounding.AwayFromZero);
-            var sellButton = new ButtonMenuOption(Localize(player, "shop.menu.inventory.item.sell", FormatCredits(sellAmount)));
-            sellButton.Click += (sender, args) =>
+            _ = builder.Add(new ButtonComponent(Localize(player, "shop.menu.inventory.item.sell", FormatCredits(sellAmount)), ctx =>
             {
-                _ = shopApi.SellItem(args.Player, item.Id);
-                Core.MenusAPI.OpenMenuForPlayer(args.Player, BuildInventoryItemsMenu(args.Player, category, subcategory, null, parent));
+                _ = shopApi.SellItem(ctx.Player, item.Id);
+                OpenInPlaceOfParent(ctx, BuildInventoryItemsMenu(ctx.Player, category, subcategory));
                 return ValueTask.CompletedTask;
-            };
-            _ = builder.AddOption(sellButton);
+            }));
         }
         else
         {
-            _ = builder.AddOption(new TextMenuOption(Localize(player, "shop.menu.inventory.item.not_sellable")) { Enabled = false });
+            _ = builder.Add(new TextComponent(Localize(player, "shop.menu.inventory.item.not_sellable")) { Enabled = false });
         }
 
-        return builder.Build();
+        return BuildMenu(player, builder);
     }
 
-    private IMenuBuilderAPI CreateBaseMenuBuilder(IPlayer player, string titleKey, IMenuAPI? parent = null, params object[] args)
+    private IMenuBuilder CreateBaseMenuBuilder(IPlayer player, string menuId, string titleKey, params object[] args)
     {
-        var builder = Core.MenusAPI
-            .CreateBuilder()
-            .EnableExit()
-            .SetPlayerFrozen(Settings.Menus.FreezePlayerWhileOpen);
+        return Core.Menu
+            .CreateMenu(MenuIdPrefix + menuId)
+            .AddHeader(new TitleComponent(Localize(player, titleKey, args)) { Overflow = MenuTextOverflow.None })
+            .WithItemsPerPage(Settings.Menus.MaxVisibleItems);
+    }
 
-        if (Settings.Menus.EnableMenuSound)
+    private IMenu BuildMenu(IPlayer player, IMenuBuilder builder)
+    {
+        var menu = builder.Build();
+        var defaultComment = Localize(player, Settings.Menus.DefaultCommentTranslationKey);
+
+        foreach (var component in menu.GetComponents(MenuRegion.Body).OfType<MenuComponentBase>())
         {
-            _ = builder.EnableSound();
+            if (string.IsNullOrWhiteSpace(component.Comment))
+            {
+                component.Comment = defaultComment;
+            }
+
+            // Only the select sound is per component; scroll/exit sounds come from SwiftlyS2's menus.jsonc.
+            if (!Settings.Menus.EnableMenuSound)
+            {
+                component.PlaySound = false;
+            }
         }
-        else
+
+        // The old menu's Closed fires before the next menu's Opened, so navigating keeps the player frozen.
+        if (Settings.Menus.FreezePlayerWhileOpen)
         {
-            _ = builder.DisableSound();
+            menu.Opened += session => SetMenuFreeze(session.Player, true);
+            menu.Closed += session => SetMenuFreeze(session.Player, false);
         }
 
-        _ = builder
-            .Design.SetMenuTitle(Localize(player, titleKey, args))
-            .Design.SetMaxVisibleItems(Settings.Menus.MaxVisibleItems)
-            .Design.SetDefaultComment(Localize(player, Settings.Menus.DefaultCommentTranslationKey));
+        return menu;
+    }
 
-        if (parent is not null)
+    private static void OpenInPlaceOfParent(MenuActionContext ctx, IMenu refreshed)
+    {
+        refreshed.Parent = ctx.Menu.Parent?.Parent;
+        _ = refreshed.Open(ctx.Player);
+    }
+
+    private void SetMenuFreeze(IPlayer player, bool frozen)
+    {
+        Core.Scheduler.NextTick(() => ApplyMenuFreeze(player, frozen));
+    }
+
+    // Closed queues its unfreeze on Core.Scheduler, which unloading cancels before the next tick.
+    private void ReleaseMenuFreezes()
+    {
+        if (!Settings.Menus.FreezePlayerWhileOpen || !Core.IsGameThread)
         {
-            _ = builder.BindToParent(parent);
+            return;
         }
 
-        return builder;
+        foreach (var player in Core.PlayerManager.GetAllValidPlayers())
+        {
+            if (Core.Menu.GetSession(player)?.Menu.Id.StartsWith(MenuIdPrefix, StringComparison.Ordinal) == true)
+            {
+                ApplyMenuFreeze(player, false);
+            }
+        }
+    }
+
+    private static void ApplyMenuFreeze(IPlayer player, bool frozen)
+    {
+        if (!player.IsValid || player.PlayerPawn is not { IsValid: true } pawn)
+        {
+            return;
+        }
+
+        var moveType = frozen ? MoveType_t.MOVETYPE_NONE : MoveType_t.MOVETYPE_WALK;
+        pawn.MoveType = moveType;
+        pawn.ActualMoveType = moveType;
+        pawn.MoveTypeUpdated();
     }
 
     private string BuildBuyItemText(IPlayer player, ShopItemDefinition item)
@@ -672,5 +666,46 @@ public partial class ShopCore
         }
 
         return collapsed.Trim('_');
+    }
+
+    // TextComponent only redraws on input, which would freeze a countdown between key presses.
+    private sealed class CountdownTextComponent : TextComponent
+    {
+        public override bool NeedsRedraw(IMenuSession session, DateTime now)
+        {
+            if (base.NeedsRedraw(session, now))
+            {
+                return true;
+            }
+
+            // The chat renderer re-posts the whole menu on every redraw.
+            if (string.Equals(session.Menu.Renderer.Id, MenuRendererIds.Chat, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var state = session.GetState<CountdownState>(this);
+            var second = now.Ticks / TimeSpan.TicksPerSecond;
+            if (state.CheckedSecond == second)
+            {
+                return false;
+            }
+
+            state.CheckedSecond = second;
+            return !string.Equals(RawText(session), state.RenderedText, StringComparison.Ordinal);
+        }
+
+        public override MenuNode Render(IMenuComponentRenderContext context)
+        {
+            context.Session.GetState<CountdownState>(this).RenderedText = RawText(context.Session);
+            return base.Render(context);
+        }
+
+        private sealed class CountdownState
+        {
+            public long CheckedSecond { get; set; }
+
+            public string? RenderedText { get; set; }
+        }
     }
 }
