@@ -12,7 +12,7 @@ namespace ShopCore;
 
 [PluginMetadata(
     Id = "ShopCore",
-    Version = "v1.1.5",
+    Version = "v1.1.6",
     Name = "ShopCore",
     Author = "T3Marius",
     Description = "Core shop plugin exposing items and credits API."
@@ -126,6 +126,7 @@ public partial class ShopCore : BasePlugin
 
     public override void Unload()
     {
+        ReleaseMenuFreezes();
         StopTimedIncome();
         UnsubscribeEvents();
         UnregisterConfiguredCommands();
@@ -152,7 +153,7 @@ public partial class ShopCore : BasePlugin
     internal string GetCentralModuleConfigsDirectoryPath()
     {
         return Path.Combine(
-            Core.CSGODirectory,
+            Core.GameFilesDirectory,
             "addons",
             "swiftlys2",
             "configs",
