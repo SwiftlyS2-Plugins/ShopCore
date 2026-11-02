@@ -337,34 +337,44 @@ public partial class ShopCore
         string category,
         string? subcategory)
     {
-        var builder = CreateBaseMenuBuilder(player, "inventory.item", "shop.menu.inventory.item.title", shopApi.GetItemDisplayName(player, item));
         var isEnabled = item.IsEquipable && shopApi.IsItemEnabled(player, item.Id);
         var expireAt = item.Duration.HasValue ? shopApi.GetItemExpireAt(player, item.Id) : null;
+        var builder = CreateBaseMenuBuilder(
+            player,
+            $"inventory.item.{item.Id}.{(isEnabled ? 1 : 0)}",
+            "shop.menu.inventory.item.title",
+            shopApi.GetItemDisplayName(player, item)
+        );
 
         _ = builder.Add(new TextComponent(BuildInventoryItemInfoText(player, isEnabled))
         {
             Enabled = false
         });
 
-        _ = builder.Add(new CountdownTextComponent
+        _ = builder.Add(new TextComponent(BuildInventoryItemDurationInfoText(player, item, expireAt))
         {
             Enabled = false,
-            Overflow = MenuTextOverflow.None,
-            TextProvider = session => BuildInventoryItemDurationInfoText(session.Player, item, expireAt)
+            Overflow = MenuTextOverflow.None
         });
 
-        // Rebuilt rather than updated in place: IsItemEnabled expires the item as a side effect, so it must not run per frame.
         _ = builder.Add(new ButtonComponent(
             isEnabled
                 ? Localize(player, "shop.menu.inventory.item.toggle.disable")
                 : Localize(player, "shop.menu.inventory.item.toggle.enable"),
             ctx =>
             {
-                _ = shopApi.SetItemEnabled(ctx.Player, item.Id, !isEnabled);
+                var p = ctx.Player;
+                if (p is null || !p.IsValid) return ValueTask.CompletedTask;
+
+                var currentState = shopApi.IsItemEnabled(p, item.Id);
+                _ = shopApi.SetItemEnabled(p, item.Id, !currentState);
+
                 var focusedIndex = ctx.Session.FocusedIndex;
-                var refreshed = BuildInventoryItemActionMenu(ctx.Player, item, category, subcategory);
-                refreshed.Parent = ctx.Menu.Parent;
-                _ = refreshed.Open(ctx.Player).SetFocus(focusedIndex);
+                var parent = ctx.Menu.Parent;
+                var refreshed = BuildInventoryItemActionMenu(p, item, category, subcategory);
+                refreshed.Parent = parent;
+                _ = refreshed.Open(p).SetFocus(focusedIndex);
+
                 return ValueTask.CompletedTask;
             }));
 
@@ -373,8 +383,14 @@ public partial class ShopCore
             var sellAmount = item.SellPrice ?? Math.Round(item.Price * Settings.Behavior.DefaultSellRefundRatio, 0, MidpointRounding.AwayFromZero);
             _ = builder.Add(new ButtonComponent(Localize(player, "shop.menu.inventory.item.sell", FormatCredits(sellAmount)), ctx =>
             {
-                _ = shopApi.SellItem(ctx.Player, item.Id);
-                OpenInPlaceOfParent(ctx, BuildInventoryItemsMenu(ctx.Player, category, subcategory));
+                var p = ctx.Player;
+                if (p is null || !p.IsValid) return ValueTask.CompletedTask;
+
+                _ = shopApi.SellItem(p, item.Id);
+                var refreshed = BuildInventoryItemsMenu(p, category, subcategory);
+                refreshed.Parent = ctx.Menu.Parent?.Parent;
+                _ = refreshed.Open(p);
+
                 return ValueTask.CompletedTask;
             }));
         }
@@ -451,14 +467,24 @@ public partial class ShopCore
         }
     }
 
-    private static void ApplyMenuFreeze(IPlayer player, bool frozen)
+    private void ApplyMenuFreeze(IPlayer player, bool frozen)
     {
         if (!player.IsValid || player.PlayerPawn is not { IsValid: true } pawn)
         {
             return;
         }
 
+        if (!frozen && Core.Menu.GetSession(player)?.Menu.Id.StartsWith(MenuIdPrefix, StringComparison.Ordinal) == true)
+        {
+            return;
+        }
+
         var moveType = frozen ? MoveType_t.MOVETYPE_NONE : MoveType_t.MOVETYPE_WALK;
+        if (pawn.MoveType == moveType && pawn.ActualMoveType == moveType)
+        {
+            return;
+        }
+
         pawn.MoveType = moveType;
         pawn.ActualMoveType = moveType;
         pawn.MoveTypeUpdated();
@@ -471,7 +497,7 @@ public partial class ShopCore
 
     private string BuildBuyItemComment(IPlayer player, ShopItemDefinition item)
     {
-        return Localize(player, "shop.menu.buy.item.comment", GetCurrentDurationText(player, item));
+        return Localize(player, "shop.menu.buy.item.comment", GetCurrentDurationText(player, item, null));
     }
 
     private string BuildInventoryItemText(IPlayer player, ShopItemDefinition item)
