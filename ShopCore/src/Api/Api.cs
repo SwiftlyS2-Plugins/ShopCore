@@ -32,7 +32,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
     private bool missingEconomyWarningLogged;
     private readonly Dictionary<string, ShopItemDefinition> itemsById = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, HashSet<string>> categoryToIds = new(StringComparer.OrdinalIgnoreCase);
-    private ShopItemDefinition[] cachedItemsArray = Array.Empty<ShopItemDefinition>();
+    private IReadOnlyCollection<ShopItemDefinition> cachedItems = Array.Empty<ShopItemDefinition>();
     private readonly HashSet<string> knownModulePluginIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> moduleConfigFileOwners = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<ulong, long> previewCooldownUntilUnixMs = new();
@@ -121,7 +121,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             }
 
             set.Add(normalized.Id);
-            cachedItemsArray = itemsById.Values.ToArray();
+            cachedItems = Array.AsReadOnly(itemsById.Values.ToArray());
         }
 
         OnItemRegistered?.Invoke(normalized);
@@ -148,7 +148,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
                     categoryToIds.Remove(removed.Category);
                 }
             }
-            cachedItemsArray = itemsById.Values.ToArray();
+            cachedItems = Array.AsReadOnly(itemsById.Values.ToArray());
         }
 
         return true;
@@ -170,7 +170,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
 
     public IReadOnlyCollection<ShopItemDefinition> GetItems()
     {
-        return cachedItemsArray;
+        return cachedItems;
     }
 
     public IReadOnlyCollection<ShopItemDefinition> GetItemsByCategory(string category)
@@ -927,7 +927,18 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
         }
 
         var owned = plugin.playerCookies.GetOrDefault(player, OwnedKey(normalizedItemId), false);
-        var enabled = owned && plugin.playerCookies.GetOrDefault(player, EnabledKey(normalizedItemId), false);
+        // Has() first: Cookies' GetOrDefault writes the default back, which would add an "enabled" key for every unowned item.
+        var enabled = (owned || plugin.playerCookies.Has(player, EnabledKey(normalizedItemId)))
+            && plugin.playerCookies.GetOrDefault(player, EnabledKey(normalizedItemId), false);
+
+        // Migration path: legacy data stored only "enabled".
+        if (!owned && enabled)
+        {
+            owned = true;
+            plugin.playerCookies.Set(player, OwnedKey(normalizedItemId), true);
+            plugin.playerCookies.Save(player);
+        }
+
         var expireAt = owned ? plugin.playerCookies.GetOrDefault(player, ExpireAtKey(normalizedItemId), 0L) : 0L;
 
         var loaded = new CachedItemState(owned, enabled, expireAt);
@@ -1001,7 +1012,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             return false;
         }
 
-        if (item.Duration.HasValue && state.ExpireAt > 0L && state.ExpireAt <= DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+        if (state.ExpireAt > 0L && state.ExpireAt <= DateTimeOffset.UtcNow.ToUnixTimeSeconds())
         {
             var wasEnabled = state.Enabled;
             plugin.playerCookies.Unset(player, OwnedKey(normId));

@@ -16,7 +16,7 @@ namespace ShopCore;
     Id = "Shop_Tracers",
     Name = "Shop Tracers",
     Author = "T3Marius",
-    Version = "1.0.0",
+    Version = "1.0.1",
     Description = "ShopCore module with bullet tracer items"
 )]
 public class Shop_Tracers : BasePlugin

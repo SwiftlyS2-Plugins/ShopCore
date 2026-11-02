@@ -337,26 +337,23 @@ public partial class ShopCore
         string category,
         string? subcategory)
     {
+        var builder = CreateBaseMenuBuilder(player, "inventory.item", "shop.menu.inventory.item.title", shopApi.GetItemDisplayName(player, item));
         var isEnabled = item.IsEquipable && shopApi.IsItemEnabled(player, item.Id);
         var expireAt = item.Duration.HasValue ? shopApi.GetItemExpireAt(player, item.Id) : null;
-        var builder = CreateBaseMenuBuilder(
-            player,
-            $"inventory.item.{item.Id}.{(isEnabled ? 1 : 0)}",
-            "shop.menu.inventory.item.title",
-            shopApi.GetItemDisplayName(player, item)
-        );
 
         _ = builder.Add(new TextComponent(BuildInventoryItemInfoText(player, isEnabled))
         {
             Enabled = false
         });
 
-        _ = builder.Add(new TextComponent(BuildInventoryItemDurationInfoText(player, item, expireAt))
+        _ = builder.Add(new CountdownTextComponent
         {
             Enabled = false,
-            Overflow = MenuTextOverflow.None
+            Overflow = MenuTextOverflow.None,
+            TextProvider = session => BuildInventoryItemDurationInfoText(session.Player, item, expireAt)
         });
 
+        // Rebuilt rather than updated in place: IsItemEnabled expires the item as a side effect, so it must not run per frame.
         _ = builder.Add(new ButtonComponent(
             isEnabled
                 ? Localize(player, "shop.menu.inventory.item.toggle.disable")
@@ -387,10 +384,7 @@ public partial class ShopCore
                 if (p is null || !p.IsValid) return ValueTask.CompletedTask;
 
                 _ = shopApi.SellItem(p, item.Id);
-                var refreshed = BuildInventoryItemsMenu(p, category, subcategory);
-                refreshed.Parent = ctx.Menu.Parent?.Parent;
-                _ = refreshed.Open(p);
-
+                OpenInPlaceOfParent(ctx, BuildInventoryItemsMenu(p, category, subcategory));
                 return ValueTask.CompletedTask;
             }));
         }
@@ -467,14 +461,9 @@ public partial class ShopCore
         }
     }
 
-    private void ApplyMenuFreeze(IPlayer player, bool frozen)
+    private static void ApplyMenuFreeze(IPlayer player, bool frozen)
     {
         if (!player.IsValid || player.PlayerPawn is not { IsValid: true } pawn)
-        {
-            return;
-        }
-
-        if (!frozen && Core.Menu.GetSession(player)?.Menu.Id.StartsWith(MenuIdPrefix, StringComparison.Ordinal) == true)
         {
             return;
         }
@@ -497,7 +486,7 @@ public partial class ShopCore
 
     private string BuildBuyItemComment(IPlayer player, ShopItemDefinition item)
     {
-        return Localize(player, "shop.menu.buy.item.comment", GetCurrentDurationText(player, item, null));
+        return Localize(player, "shop.menu.buy.item.comment", GetCurrentDurationText(player, item));
     }
 
     private string BuildInventoryItemText(IPlayer player, ShopItemDefinition item)

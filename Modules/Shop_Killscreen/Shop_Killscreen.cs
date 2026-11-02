@@ -14,7 +14,7 @@ namespace ShopCore;
     Id = "Shop_Killscreen",
     Name = "Shop Killscreen",
     Author = "T3Marius",
-    Version = "1.0.0",
+    Version = "1.0.1",
     Description = "ShopCore module with killscreen items"
 )]
 public class Shop_Killscreen : BasePlugin
