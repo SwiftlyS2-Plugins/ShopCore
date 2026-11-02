@@ -138,6 +138,11 @@ public sealed partial class Shop_CustomWeapon
 
     private void OnItemPurchased(IPlayer player, ShopItemDefinition item)
     {
+        if (item.IsEquipable && item.Type != ShopItemType.Consumable)
+        {
+            return;
+        }
+
         if (!TryGetRuntime(item.Id, out var runtime))
         {
             return;
