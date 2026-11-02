@@ -10,6 +10,7 @@ namespace ShopCore;
 public partial class ShopCore
 {
     private const string MenuIdPrefix = "shopcore.";
+    private const string CustomHudRendererId = "customhud.panorama";
 
     private readonly record struct InventoryItemSnapshot(ShopItemDefinition Item, long? ExpireAtUnixSeconds);
 
@@ -177,8 +178,10 @@ public partial class ShopCore
 
         foreach (var item in items)
         {
-            _ = builder.Add(new SubmenuComponent(
+            _ = builder.Add(new PricedSubmenuComponent(
                 BuildBuyItemText(player, item),
+                shopApi.GetItemDisplayName(player, item),
+                FormatCredits(item.Price),
                 session => BuildBuyItemActionMenu(session.Player, item, category, subcategory))
             {
                 Comment = BuildBuyItemComment(player, item)
@@ -196,10 +199,12 @@ public partial class ShopCore
     {
         var builder = CreateBaseMenuBuilder(player, "buy.item", "shop.menu.buy.item.title", shopApi.GetItemDisplayName(player, item));
 
+        // CustomHUD would draw a disabled row's price red, as if locked; the Buy row below carries it instead.
         _ = builder.Add(new TextComponent(BuildBuyItemText(player, item))
         {
             Enabled = false,
-            Comment = BuildBuyItemComment(player, item)
+            Comment = BuildBuyItemComment(player, item),
+            TextProvider = CustomHudLabel(shopApi.GetItemDisplayName(player, item))
         });
 
         if (item.AllowPreview)
@@ -211,12 +216,16 @@ public partial class ShopCore
             }));
         }
 
-        _ = builder.Add(new ButtonComponent(Localize(player, "shop.menu.buy.item.buy", FormatCredits(item.Price)), ctx =>
-        {
-            _ = shopApi.PurchaseItem(ctx.Player, item.Id);
-            OpenInPlaceOfParent(ctx, BuildBuyItemsMenu(ctx.Player, category, subcategory));
-            return ValueTask.CompletedTask;
-        }));
+        _ = builder.Add(new PricedButtonComponent(
+            Localize(player, "shop.menu.buy.item.buy", FormatCredits(item.Price)),
+            Localize(player, "shop.menu.buy.item.buy_label"),
+            FormatCredits(item.Price),
+            ctx =>
+            {
+                _ = shopApi.PurchaseItem(ctx.Player, item.Id);
+                OpenInPlaceOfParent(ctx, BuildBuyItemsMenu(ctx.Player, category, subcategory));
+                return ValueTask.CompletedTask;
+            }));
 
         return BuildMenu(player, builder);
     }
@@ -378,15 +387,19 @@ public partial class ShopCore
         if (Settings.Behavior.AllowSelling && item.CanBeSold)
         {
             var sellAmount = item.SellPrice ?? Math.Round(item.Price * Settings.Behavior.DefaultSellRefundRatio, 0, MidpointRounding.AwayFromZero);
-            _ = builder.Add(new ButtonComponent(Localize(player, "shop.menu.inventory.item.sell", FormatCredits(sellAmount)), ctx =>
-            {
-                var p = ctx.Player;
-                if (p is null || !p.IsValid) return ValueTask.CompletedTask;
+            _ = builder.Add(new PricedButtonComponent(
+                Localize(player, "shop.menu.inventory.item.sell", FormatCredits(sellAmount)),
+                Localize(player, "shop.menu.inventory.item.sell_label"),
+                "+" + FormatCredits(sellAmount),
+                ctx =>
+                {
+                    var p = ctx.Player;
+                    if (p is null || !p.IsValid) return ValueTask.CompletedTask;
 
-                _ = shopApi.SellItem(p, item.Id);
-                OpenInPlaceOfParent(ctx, BuildInventoryItemsMenu(p, category, subcategory));
-                return ValueTask.CompletedTask;
-            }));
+                    _ = shopApi.SellItem(p, item.Id);
+                    OpenInPlaceOfParent(ctx, BuildInventoryItemsMenu(p, category, subcategory));
+                    return ValueTask.CompletedTask;
+                }));
         }
         else
         {
@@ -681,6 +694,54 @@ public partial class ShopCore
         }
 
         return collapsed.Trim('_');
+    }
+
+    // A raw node puts the price in CustomHUD's value column, past core's width fitting; other renderers ignore it.
+    private static bool IsCustomHud(IMenuSession session)
+        => string.Equals(session.Menu.Renderer.Id, CustomHudRendererId, StringComparison.OrdinalIgnoreCase);
+
+    private static Func<IMenuSession, string?> CustomHudLabel(string label)
+        => session => IsCustomHud(session) ? label : null;
+
+    private static MenuNode WithCustomHudPrice(MenuNode node, IMenuSession session, string price)
+    {
+        if (!IsCustomHud(session))
+        {
+            return node;
+        }
+
+        var raw = new MenuRawNode(CustomHudRendererId, $"text=\t{price}");
+        return node is MenuLineNode line ? line with { Children = [.. line.Children, raw] } : MenuLineNode.Of(node, raw);
+    }
+
+    private sealed class PricedSubmenuComponent : SubmenuComponent
+    {
+        private readonly string price;
+
+        public PricedSubmenuComponent(string text, string label, string price, Func<IMenuSession, IMenu?> factory)
+            : base(text, factory)
+        {
+            this.price = price;
+            TextProvider = CustomHudLabel(label);
+        }
+
+        public override MenuNode Render(IMenuComponentRenderContext context)
+            => WithCustomHudPrice(base.Render(context), context.Session, price);
+    }
+
+    private sealed class PricedButtonComponent : ButtonComponent
+    {
+        private readonly string price;
+
+        public PricedButtonComponent(string text, string label, string price, Func<MenuActionContext, ValueTask> onSelect)
+            : base(text, onSelect)
+        {
+            this.price = price;
+            TextProvider = CustomHudLabel(label);
+        }
+
+        public override MenuNode Render(IMenuComponentRenderContext context)
+            => WithCustomHudPrice(base.Render(context), context.Session, price);
     }
 
     // TextComponent only redraws on input, which would freeze a countdown between key presses.
