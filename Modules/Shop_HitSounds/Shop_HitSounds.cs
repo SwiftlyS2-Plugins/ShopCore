@@ -13,7 +13,7 @@ namespace ShopCore;
     Id = "Shop_HitSounds",
     Name = "Shop HitSounds",
     Author = "T3Marius",
-    Version = "1.0.0",
+    Version = "1.0.1",
     Description = "ShopCore module with hit-sound items"
 )]
 public class Shop_HitSounds : BasePlugin
@@ -23,12 +23,15 @@ public class Shop_HitSounds : BasePlugin
     private const string TemplateFileName = "hitsounds_config.jsonc";
     private const string TemplateSectionName = "Main";
     private const string DefaultCategory = "Sounds/Hit Sounds";
+    private const float MinHitSoundIntervalSeconds = 0.04f;
 
     private IShopCoreApiV2? shopApi;
     private bool handlersRegistered;
     private readonly HashSet<string> registeredItemIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> registeredItemOrder = new();
     private readonly Dictionary<string, HitSoundItemRuntime> itemRuntimeById = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<int, string> cachedSoundByPlayerId = new();
+    private readonly Dictionary<int, float> nextHitSoundAllowedAtByPlayerId = new();
     private HitSoundsModuleSettings runtimeSettings = new();
 
     public Shop_HitSounds(ISwiftlyCore core) : base(core) { }
@@ -74,6 +77,8 @@ public class Shop_HitSounds : BasePlugin
     public override void Unload()
     {
         UnregisterItemsAndHandlers();
+        cachedSoundByPlayerId.Clear();
+        nextHitSoundAllowedAtByPlayerId.Clear();
     }
 
     [GameEventHandler(HookMode.Pre)]
@@ -90,11 +95,19 @@ public class Shop_HitSounds : BasePlugin
             return HookResult.Continue;
         }
 
+        var playerId = attacker.PlayerID;
+        var now = Core.Engine.GlobalVars.CurrentTime;
+        if (nextHitSoundAllowedAtByPlayerId.TryGetValue(playerId, out var nextAllowed) && now < nextAllowed)
+        {
+            return HookResult.Continue;
+        }
+
         if (!TryGetEnabledSound(attacker, out var soundPath))
         {
             return HookResult.Continue;
         }
 
+        nextHitSoundAllowedAtByPlayerId[playerId] = now + MinHitSoundIntervalSeconds;
         PlayHitSound(attacker, soundPath);
         return HookResult.Continue;
     }
@@ -220,6 +233,8 @@ public class Shop_HitSounds : BasePlugin
 
     private void OnItemToggled(IPlayer player, ShopItemDefinition item, bool enabled)
     {
+        cachedSoundByPlayerId.Remove(player.PlayerID);
+
         if (!enabled || shopApi == null || !registeredItemIds.Contains(item.Id))
         {
             return;
@@ -243,6 +258,7 @@ public class Shop_HitSounds : BasePlugin
 
     private void OnItemSold(IPlayer player, ShopItemDefinition item, decimal creditedAmount)
     {
+        cachedSoundByPlayerId.Remove(player.PlayerID);
         if (!registeredItemIds.Contains(item.Id))
         {
             return;
@@ -251,6 +267,7 @@ public class Shop_HitSounds : BasePlugin
 
     private void OnItemExpired(IPlayer player, ShopItemDefinition item)
     {
+        cachedSoundByPlayerId.Remove(player.PlayerID);
         if (!registeredItemIds.Contains(item.Id))
         {
             return;
@@ -282,6 +299,13 @@ public class Shop_HitSounds : BasePlugin
             return false;
         }
 
+        var playerId = player.PlayerID;
+        if (cachedSoundByPlayerId.TryGetValue(playerId, out var cached))
+        {
+            soundPath = cached;
+            return !string.IsNullOrWhiteSpace(soundPath);
+        }
+
         foreach (var itemId in registeredItemOrder)
         {
             if (!shopApi.IsItemEnabled(player, itemId))
@@ -295,10 +319,11 @@ public class Shop_HitSounds : BasePlugin
             }
 
             soundPath = runtime.SoundPath;
-            return !string.IsNullOrWhiteSpace(soundPath);
+            break;
         }
 
-        return false;
+        cachedSoundByPlayerId[playerId] = soundPath;
+        return !string.IsNullOrWhiteSpace(soundPath);
     }
 
     private void PlayHitSound(IPlayer player, string soundPath)
@@ -560,8 +585,14 @@ internal sealed class HitSoundsModuleSettings
     public string Category { get; set; } = "Visuals/Hit Sounds";
 }
 
+internal sealed class HitSoundsModuleTemplate
+{
+}
+
 internal sealed class HitSoundItemTemplate
 {
+    
+
     public string Id { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
     public string DisplayNameKey { get; set; } = string.Empty;
@@ -575,3 +606,5 @@ internal sealed class HitSoundItemTemplate
     public bool CanBeSold { get; set; } = true;
     public string RequiredPermission { get; set; } = string.Empty;
 }
+
+class ItemTemplatePlaceholder {}
