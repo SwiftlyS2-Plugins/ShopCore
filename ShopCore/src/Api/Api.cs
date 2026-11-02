@@ -32,10 +32,13 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
     private bool missingEconomyWarningLogged;
     private readonly Dictionary<string, ShopItemDefinition> itemsById = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, HashSet<string>> categoryToIds = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyCollection<ShopItemDefinition> cachedItems = Array.Empty<ShopItemDefinition>();
     private readonly HashSet<string> knownModulePluginIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> moduleConfigFileOwners = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<ulong, long> previewCooldownUntilUnixMs = new();
     private IShopLedgerStore ledgerStore = new InMemoryShopLedgerStore(2000);
+    private readonly record struct CachedItemState(bool Owned, bool Enabled, long ExpireAt);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(ulong SteamId, string ItemId), CachedItemState> itemStateCache = new();
 
     public ShopCoreApiV2(ShopCore plugin)
     {
@@ -118,6 +121,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             }
 
             set.Add(normalized.Id);
+            cachedItems = Array.AsReadOnly(itemsById.Values.ToArray());
         }
 
         OnItemRegistered?.Invoke(normalized);
@@ -144,6 +148,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
                     categoryToIds.Remove(removed.Category);
                 }
             }
+            cachedItems = Array.AsReadOnly(itemsById.Values.ToArray());
         }
 
         return true;
@@ -165,10 +170,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
 
     public IReadOnlyCollection<ShopItemDefinition> GetItems()
     {
-        lock (sync)
-        {
-            return itemsById.Values.ToArray();
-        }
+        return cachedItems;
     }
 
     public IReadOnlyCollection<ShopItemDefinition> GetItemsByCategory(string category)
@@ -511,7 +513,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             return 0m;
         }
 
-        return plugin.economyApi.GetPlayerBalance(player.SteamID, WalletKind);
+        return plugin.economyApi.GetPlayerBalance(player, WalletKind);
     }
 
     public bool AddCredits(IPlayer player, decimal amount)
@@ -526,8 +528,8 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             return false;
         }
 
-        plugin.economyApi.AddPlayerBalance(player.SteamID, WalletKind, creditsAmount);
-        var balanceAfter = plugin.economyApi.GetPlayerBalance(player.SteamID, WalletKind);
+        plugin.economyApi.AddPlayerBalance(player, WalletKind, creditsAmount);
+        var balanceAfter = plugin.economyApi.GetPlayerBalance(player, WalletKind);
         RecordLedgerEntry(player, "credits_add", creditsAmount, balanceAfter);
         return true;
     }
@@ -544,13 +546,13 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             return false;
         }
 
-        if (!plugin.economyApi.HasSufficientFunds(player.SteamID, WalletKind, creditsAmount))
+        if (!plugin.economyApi.HasSufficientFunds(player, WalletKind, creditsAmount))
         {
             return false;
         }
 
-        plugin.economyApi.SubtractPlayerBalance(player.SteamID, WalletKind, creditsAmount);
-        var balanceAfter = plugin.economyApi.GetPlayerBalance(player.SteamID, WalletKind);
+        plugin.economyApi.SubtractPlayerBalance(player, WalletKind, creditsAmount);
+        var balanceAfter = plugin.economyApi.GetPlayerBalance(player, WalletKind);
         RecordLedgerEntry(player, "credits_subtract", creditsAmount, balanceAfter);
         return true;
     }
@@ -567,7 +569,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             return false;
         }
 
-        return plugin.economyApi.HasSufficientFunds(player.SteamID, WalletKind, creditsAmount);
+        return plugin.economyApi.HasSufficientFunds(player, WalletKind, creditsAmount);
     }
 
     public ShopTransactionResult PurchaseItem(IPlayer player, string itemId)
@@ -638,7 +640,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             );
         }
 
-        if (!plugin.economyApi.HasSufficientFunds(player.SteamID, WalletKind, buyAmount))
+        if (!plugin.economyApi.HasSufficientFunds(player, WalletKind, buyAmount))
         {
             return Fail(
                 ShopTransactionStatus.InsufficientCredits,
@@ -650,24 +652,26 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             );
         }
 
-        plugin.economyApi.SubtractPlayerBalance(player.SteamID, WalletKind, buyAmount);
+        plugin.economyApi.SubtractPlayerBalance(player, WalletKind, buyAmount);
 
         long? expiresAt = null;
         if (tracksOwnership)
         {
-            plugin.playerCookies.Set(player, OwnedKey(item.Id), true);
-            plugin.playerCookies.Set(player, EnabledKey(item.Id), true);
+            var normId = NormalizeItemId(item.Id);
+            plugin.playerCookies.Set(player, OwnedKey(normId), true);
+            plugin.playerCookies.Set(player, EnabledKey(normId), true);
 
             if (item.Duration.HasValue)
             {
                 expiresAt = DateTimeOffset.UtcNow.Add(item.Duration.Value).ToUnixTimeSeconds();
-                plugin.playerCookies.Set(player, ExpireAtKey(item.Id), expiresAt.Value);
+                plugin.playerCookies.Set(player, ExpireAtKey(normId), expiresAt.Value);
             }
             else
             {
-                plugin.playerCookies.Unset(player, ExpireAtKey(item.Id));
+                plugin.playerCookies.Unset(player, ExpireAtKey(normId));
             }
 
+            itemStateCache[(player.SteamID, normId)] = new CachedItemState(true, true, expiresAt ?? 0L);
             plugin.playerCookies.Save(player);
             OnItemToggled?.Invoke(player, item, true);
         }
@@ -765,7 +769,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             return false;
         }
 
-        if (player.SteamID == 0)
+        if (player is null || !player.IsValid)
         {
             return false;
         }
@@ -792,7 +796,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
     private void MarkPreviewCooldown(IPlayer player)
     {
         var cooldownSeconds = plugin.Settings.Behavior.PreviewCooldownSeconds;
-        if (cooldownSeconds <= 0f || player.SteamID == 0)
+        if (cooldownSeconds <= 0f || player is null || !player.IsValid)
         {
             return;
         }
@@ -882,13 +886,18 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             );
         }
 
-        var wasEnabled = plugin.playerCookies.GetOrDefault(player, EnabledKey(item.Id), false);
-        plugin.playerCookies.Set(player, OwnedKey(item.Id), false);
-        plugin.playerCookies.Set(player, EnabledKey(item.Id), false);
-        plugin.playerCookies.Unset(player, ExpireAtKey(item.Id));
+        var normId = NormalizeItemId(item.Id);
+        var state = GetCachedOrLoadState(player, normId);
+        var wasEnabled = state.Enabled;
+
+        plugin.playerCookies.Unset(player, OwnedKey(normId));
+        plugin.playerCookies.Unset(player, EnabledKey(normId));
+        plugin.playerCookies.Unset(player, ExpireAtKey(normId));
+
+        itemStateCache[(player.SteamID, normId)] = new CachedItemState(false, false, 0L);
         plugin.playerCookies.Save(player);
 
-        plugin.economyApi.AddPlayerBalance(player.SteamID, WalletKind, sellAmount);
+        plugin.economyApi.AddPlayerBalance(player, WalletKind, sellAmount);
 
         if (wasEnabled)
         {
@@ -909,9 +918,53 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
         );
     }
 
+    private CachedItemState GetCachedOrLoadState(IPlayer player, string normalizedItemId)
+    {
+        var key = (player.SteamID, normalizedItemId);
+        if (itemStateCache.TryGetValue(key, out var cached))
+        {
+            return cached;
+        }
+
+        var owned = plugin.playerCookies.GetOrDefault(player, OwnedKey(normalizedItemId), false);
+        // Has() first: Cookies' GetOrDefault writes the default back, which would add an "enabled" key for every unowned item.
+        var enabled = (owned || plugin.playerCookies.Has(player, EnabledKey(normalizedItemId)))
+            && plugin.playerCookies.GetOrDefault(player, EnabledKey(normalizedItemId), false);
+
+        // Migration path: legacy data stored only "enabled".
+        if (!owned && enabled)
+        {
+            owned = true;
+            plugin.playerCookies.Set(player, OwnedKey(normalizedItemId), true);
+            plugin.playerCookies.Save(player);
+        }
+
+        var expireAt = owned ? plugin.playerCookies.GetOrDefault(player, ExpireAtKey(normalizedItemId), 0L) : 0L;
+
+        var loaded = new CachedItemState(owned, enabled, expireAt);
+        itemStateCache[key] = loaded;
+        return loaded;
+    }
+
+    internal void ClearPlayerCache(ulong steamId)
+    {
+        if (steamId == 0)
+        {
+            return;
+        }
+
+        foreach (var k in itemStateCache.Keys)
+        {
+            if (k.SteamId == steamId)
+            {
+                itemStateCache.TryRemove(k, out _);
+            }
+        }
+    }
+
     public bool IsItemEnabled(IPlayer player, string itemId)
     {
-        if (!EnsureCookiesApi())
+        if (!EnsureCookiesApi() || player is null || !player.IsValid)
         {
             return false;
         }
@@ -926,13 +979,12 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             return false;
         }
 
-        var enabled = plugin.playerCookies.GetOrDefault(player, EnabledKey(item.Id), false);
-        return enabled;
+        return GetCachedOrLoadState(player, item.Id).Enabled;
     }
 
     public bool IsItemOwned(IPlayer player, string itemId)
     {
-        if (!EnsureCookiesApi())
+        if (!EnsureCookiesApi() || player is null || !player.IsValid)
         {
             return false;
         }
@@ -952,29 +1004,21 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             return false;
         }
 
-        var owned = plugin.playerCookies.GetOrDefault(player, OwnedKey(item.Id), false);
-        var enabled = plugin.playerCookies.GetOrDefault(player, EnabledKey(item.Id), false);
+        var normId = item.Id;
+        var state = GetCachedOrLoadState(player, normId);
 
-        // Migration path: legacy data stored only "enabled".
-        if (!owned && enabled)
-        {
-            owned = true;
-            plugin.playerCookies.Set(player, OwnedKey(item.Id), true);
-            plugin.playerCookies.Save(player);
-        }
-
-        if (!owned)
+        if (!state.Owned)
         {
             return false;
         }
 
-        var expireAt = GetItemExpireAt(player, item.Id);
-        if (expireAt.HasValue && expireAt.Value <= DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+        if (state.ExpireAt > 0L && state.ExpireAt <= DateTimeOffset.UtcNow.ToUnixTimeSeconds())
         {
-            var wasEnabled = plugin.playerCookies.GetOrDefault(player, EnabledKey(item.Id), false);
-            plugin.playerCookies.Set(player, OwnedKey(item.Id), false);
-            plugin.playerCookies.Set(player, EnabledKey(item.Id), false);
-            plugin.playerCookies.Unset(player, ExpireAtKey(item.Id));
+            var wasEnabled = state.Enabled;
+            plugin.playerCookies.Unset(player, OwnedKey(normId));
+            plugin.playerCookies.Unset(player, EnabledKey(normId));
+            plugin.playerCookies.Unset(player, ExpireAtKey(normId));
+            itemStateCache[(player.SteamID, normId)] = new CachedItemState(false, false, 0L);
             plugin.playerCookies.Save(player);
 
             if (wasEnabled)
@@ -995,7 +1039,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
 
     public bool SetItemEnabled(IPlayer player, string itemId, bool enabled)
     {
-        if (!EnsureCookiesApi())
+        if (!EnsureCookiesApi() || player is null || !player.IsValid)
         {
             return false;
         }
@@ -1015,8 +1059,9 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             return false;
         }
 
-        var currentEnabled = plugin.playerCookies.GetOrDefault(player, EnabledKey(item.Id), false);
-        if (currentEnabled == enabled)
+        var normId = item.Id;
+        var state = GetCachedOrLoadState(player, normId);
+        if (state.Enabled == enabled)
         {
             return true;
         }
@@ -1026,20 +1071,21 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             return false;
         }
 
-        plugin.playerCookies.Set(player, EnabledKey(item.Id), enabled);
-
+        var newExpire = state.ExpireAt;
         if (enabled && item.Duration.HasValue)
         {
             var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            var current = plugin.playerCookies.GetOrDefault(player, ExpireAtKey(item.Id), 0L);
-            if (current <= now)
+            if (newExpire <= now)
             {
-                var newExpire = DateTimeOffset.UtcNow.Add(item.Duration.Value).ToUnixTimeSeconds();
-                plugin.playerCookies.Set(player, ExpireAtKey(item.Id), newExpire);
+                newExpire = DateTimeOffset.UtcNow.Add(item.Duration.Value).ToUnixTimeSeconds();
+                plugin.playerCookies.Set(player, ExpireAtKey(normId), newExpire);
             }
         }
 
+        plugin.playerCookies.Set(player, EnabledKey(normId), enabled);
+        itemStateCache[(player.SteamID, normId)] = new CachedItemState(true, enabled, newExpire);
         plugin.playerCookies.Save(player);
+
         plugin.SendLocalizedChat(
             player,
             enabled ? "shop.item.equipped" : "shop.item.unequipped",
@@ -1051,7 +1097,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
 
     public long? GetItemExpireAt(IPlayer player, string itemId)
     {
-        if (!EnsureCookiesApi())
+        if (!EnsureCookiesApi() || player is null || !player.IsValid)
         {
             return null;
         }
@@ -1061,7 +1107,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             return null;
         }
 
-        var value = plugin.playerCookies.GetOrDefault(player, ExpireAtKey(item.Id), 0L);
+        var value = GetCachedOrLoadState(player, item.Id).ExpireAt;
         return value > 0L ? value : null;
     }
 
@@ -1092,10 +1138,21 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
         return current.GetRecentForSteamId(player.SteamID, maxEntries);
     }
 
-    private static string NormalizeItemId(string itemId) => itemId.Trim().ToLowerInvariant();
-    private static string OwnedKey(string itemId) => $"{CookiePrefix}:owned:{NormalizeItemId(itemId)}";
-    private static string EnabledKey(string itemId) => $"{CookiePrefix}:enabled:{NormalizeItemId(itemId)}";
-    private static string ExpireAtKey(string itemId) => $"{CookiePrefix}:expireat:{NormalizeItemId(itemId)}";
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string Norm, string Owned, string Enabled, string Expire)> PrecomputedKeys = new(StringComparer.OrdinalIgnoreCase);
+
+    private static (string Norm, string Owned, string Enabled, string Expire) GetKeys(string itemId)
+    {
+        return PrecomputedKeys.GetOrAdd(itemId, static id =>
+        {
+            var norm = id.Trim().ToLowerInvariant();
+            return (norm, $"{CookiePrefix}:owned:{norm}", $"{CookiePrefix}:enabled:{norm}", $"{CookiePrefix}:expireat:{norm}");
+        });
+    }
+
+    private static string NormalizeItemId(string itemId) => GetKeys(itemId).Norm;
+    private static string OwnedKey(string itemId) => GetKeys(itemId).Owned;
+    private static string EnabledKey(string itemId) => GetKeys(itemId).Enabled;
+    private static string ExpireAtKey(string itemId) => GetKeys(itemId).Expire;
 
     private void RecordLedgerEntry(IPlayer player, string action, decimal amount, decimal balanceAfter, ShopItemDefinition? item = null)
     {
@@ -1749,25 +1806,10 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
     {
         try
         {
-            var controller = player.Controller;
-            var t = controller.GetType();
-
-            var raw = t.GetProperty("TeamNum")?.GetValue(controller)
-                   ?? t.GetProperty("Team")?.GetValue(controller)
-                   ?? t.GetProperty("TeamID")?.GetValue(controller);
-
-            return raw switch
+            return player.Controller.TeamNum switch
             {
-                Team swiftlyTeam => swiftlyTeam switch
-                {
-                    Team.T => ShopItemTeam.T,
-                    Team.CT => ShopItemTeam.CT,
-                    _ => ShopItemTeam.Any
-                },
-                int i when i == 2 => ShopItemTeam.T,
-                int i when i == 3 => ShopItemTeam.CT,
-                byte b when b == 2 => ShopItemTeam.T,
-                byte b when b == 3 => ShopItemTeam.CT,
+                2 => ShopItemTeam.T,
+                3 => ShopItemTeam.CT,
                 _ => ShopItemTeam.Any
             };
         }
@@ -1776,6 +1818,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             return ShopItemTeam.Any;
         }
     }
+
     public string? GetShopPrefix(IPlayer? player)
     {
         if (player == null)

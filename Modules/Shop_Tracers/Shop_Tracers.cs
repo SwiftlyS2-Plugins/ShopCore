@@ -16,7 +16,7 @@ namespace ShopCore;
     Id = "Shop_Tracers",
     Name = "Shop Tracers",
     Author = "T3Marius",
-    Version = "1.0.0",
+    Version = "1.0.1",
     Description = "ShopCore module with bullet tracer items"
 )]
 public class Shop_Tracers : BasePlugin
@@ -512,6 +512,7 @@ public class Shop_Tracers : BasePlugin
             pool.NextIndex = (pool.NextIndex + 1) % pool.Slots.Length;
 
             var beam = pool.Slots[slotIndex];
+            var isNewBeam = false;
             if (beam == null || !beam.IsValid)
             {
                 beam = Core.EntitySystem.CreateEntityByDesignerName<CBeam>("beam");
@@ -522,19 +523,33 @@ public class Shop_Tracers : BasePlugin
 
                 beam.DispatchSpawn();
                 pool.Slots[slotIndex] = beam;
+                pool.Hidden[slotIndex] = true;
+                isNewBeam = true;
             }
 
-            beam.Render = color;
-            beam.RenderUpdated();
+            if (isNewBeam || beam.Render != color)
+            {
+                beam.Render = color;
+                beam.RenderUpdated();
+            }
 
-            beam.Width = runtime.StartWidth;
-            beam.WidthUpdated();
+            if (isNewBeam || MathF.Abs(beam.Width - runtime.StartWidth) > 0.01f)
+            {
+                beam.Width = runtime.StartWidth;
+                beam.WidthUpdated();
+            }
 
-            beam.EndWidth = runtime.EndWidth;
-            beam.EndWidthUpdated();
+            if (isNewBeam || MathF.Abs(beam.EndWidth - runtime.EndWidth) > 0.01f)
+            {
+                beam.EndWidth = runtime.EndWidth;
+                beam.EndWidthUpdated();
+            }
 
-            beam.TurnedOff = false;
-            beam.TurnedOffUpdated();
+            if (pool.Hidden[slotIndex] || beam.TurnedOff)
+            {
+                beam.TurnedOff = false;
+                beam.TurnedOffUpdated();
+            }
 
             beam.Teleport(start, QAngle.Zero, Vector.Zero);
 

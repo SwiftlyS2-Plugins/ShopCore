@@ -244,6 +244,7 @@ public partial class ShopCore
         }
 
         _ = playerSteamIds.Remove(playerId);
+        shopApi.ClearPlayerCache(steamId);
 
         // Persist cookies and economy data when client disconnects to reduce data-loss risk.
         try

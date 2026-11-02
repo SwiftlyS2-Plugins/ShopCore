@@ -360,11 +360,18 @@ public partial class ShopCore
                 : Localize(player, "shop.menu.inventory.item.toggle.enable"),
             ctx =>
             {
-                _ = shopApi.SetItemEnabled(ctx.Player, item.Id, !isEnabled);
+                var p = ctx.Player;
+                if (p is null || !p.IsValid) return ValueTask.CompletedTask;
+
+                var currentState = shopApi.IsItemEnabled(p, item.Id);
+                _ = shopApi.SetItemEnabled(p, item.Id, !currentState);
+
                 var focusedIndex = ctx.Session.FocusedIndex;
-                var refreshed = BuildInventoryItemActionMenu(ctx.Player, item, category, subcategory);
-                refreshed.Parent = ctx.Menu.Parent;
-                _ = refreshed.Open(ctx.Player).SetFocus(focusedIndex);
+                var parent = ctx.Menu.Parent;
+                var refreshed = BuildInventoryItemActionMenu(p, item, category, subcategory);
+                refreshed.Parent = parent;
+                _ = refreshed.Open(p).SetFocus(focusedIndex);
+
                 return ValueTask.CompletedTask;
             }));
 
@@ -373,8 +380,11 @@ public partial class ShopCore
             var sellAmount = item.SellPrice ?? Math.Round(item.Price * Settings.Behavior.DefaultSellRefundRatio, 0, MidpointRounding.AwayFromZero);
             _ = builder.Add(new ButtonComponent(Localize(player, "shop.menu.inventory.item.sell", FormatCredits(sellAmount)), ctx =>
             {
-                _ = shopApi.SellItem(ctx.Player, item.Id);
-                OpenInPlaceOfParent(ctx, BuildInventoryItemsMenu(ctx.Player, category, subcategory));
+                var p = ctx.Player;
+                if (p is null || !p.IsValid) return ValueTask.CompletedTask;
+
+                _ = shopApi.SellItem(p, item.Id);
+                OpenInPlaceOfParent(ctx, BuildInventoryItemsMenu(p, category, subcategory));
                 return ValueTask.CompletedTask;
             }));
         }
@@ -459,6 +469,11 @@ public partial class ShopCore
         }
 
         var moveType = frozen ? MoveType_t.MOVETYPE_NONE : MoveType_t.MOVETYPE_WALK;
+        if (pawn.MoveType == moveType && pawn.ActualMoveType == moveType)
+        {
+            return;
+        }
+
         pawn.MoveType = moveType;
         pawn.ActualMoveType = moveType;
         pawn.MoveTypeUpdated();

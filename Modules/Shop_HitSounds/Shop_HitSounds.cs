@@ -13,7 +13,7 @@ namespace ShopCore;
     Id = "Shop_HitSounds",
     Name = "Shop HitSounds",
     Author = "T3Marius",
-    Version = "1.0.0",
+    Version = "1.0.1",
     Description = "ShopCore module with hit-sound items"
 )]
 public class Shop_HitSounds : BasePlugin
@@ -23,12 +23,14 @@ public class Shop_HitSounds : BasePlugin
     private const string TemplateFileName = "hitsounds_config.jsonc";
     private const string TemplateSectionName = "Main";
     private const string DefaultCategory = "Sounds/Hit Sounds";
+    private const long MinHitSoundIntervalMs = 40;
 
     private IShopCoreApiV2? shopApi;
     private bool handlersRegistered;
     private readonly HashSet<string> registeredItemIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> registeredItemOrder = new();
     private readonly Dictionary<string, HitSoundItemRuntime> itemRuntimeById = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<int, long> nextHitSoundAllowedAtMsByPlayerId = new();
     private HitSoundsModuleSettings runtimeSettings = new();
 
     public Shop_HitSounds(ISwiftlyCore core) : base(core) { }
@@ -74,6 +76,7 @@ public class Shop_HitSounds : BasePlugin
     public override void Unload()
     {
         UnregisterItemsAndHandlers();
+        nextHitSoundAllowedAtMsByPlayerId.Clear();
     }
 
     [GameEventHandler(HookMode.Pre)]
@@ -90,11 +93,20 @@ public class Shop_HitSounds : BasePlugin
             return HookResult.Continue;
         }
 
+        // Not GlobalVars.CurrentTime: curtime restarts every map, so a stored value would mute the slot after a map change.
+        var playerId = attacker.PlayerID;
+        var nowMs = Environment.TickCount64;
+        if (nextHitSoundAllowedAtMsByPlayerId.TryGetValue(playerId, out var nextAllowedMs) && nowMs < nextAllowedMs)
+        {
+            return HookResult.Continue;
+        }
+
         if (!TryGetEnabledSound(attacker, out var soundPath))
         {
             return HookResult.Continue;
         }
 
+        nextHitSoundAllowedAtMsByPlayerId[playerId] = nowMs + MinHitSoundIntervalMs;
         PlayHitSound(attacker, soundPath);
         return HookResult.Continue;
     }
