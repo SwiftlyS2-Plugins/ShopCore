@@ -93,6 +93,7 @@ public class Shop_Killscreen : BasePlugin
             var currentTime = Core.Engine.GlobalVars.CurrentTime;
             pawn.HealthShotBoostExpirationTime.Value = currentTime + 1.0f;
             pawn.HealthShotBoostExpirationTimeUpdated();
+            break;
         }
 
         return HookResult.Continue;
