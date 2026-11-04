@@ -67,7 +67,6 @@
   "shop.menu.buy.item.entry": "{0} [{1}]",
   "shop.menu.buy.item.preview": "Preview item",
   "shop.menu.buy.item.buy": "Buy [{0}]",
-  "shop.menu.buy.item.buy_label": "Buy",
   "shop.menu.buy.item.owned": "{0} | Owned",
   "shop.menu.buy.item.comment": "Duration: {0}",
 
@@ -81,7 +80,6 @@
   "shop.menu.inventory.item.toggle.enable": "Equip item",
   "shop.menu.inventory.item.toggle.disable": "Unequip item",
   "shop.menu.inventory.item.sell": "Sell [+{0}]",
-  "shop.menu.inventory.item.sell_label": "Sell",
   "shop.menu.inventory.item.sell_hint": "Sell value: +{0} credits",
   "shop.menu.inventory.item.not_sellable": "This item cannot be sold",
 

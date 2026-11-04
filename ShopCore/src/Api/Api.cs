@@ -918,6 +918,11 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
         );
     }
 
+    public decimal GetSellPrice(ShopItemDefinition item)
+    {
+        return item is null ? 0m : ResolveSellPrice(item);
+    }
+
     private CachedItemState GetCachedOrLoadState(IPlayer player, string normalizedItemId)
     {
         var key = (player.SteamID, normalizedItemId);

@@ -315,6 +315,7 @@ Main capabilities exposed to other plugins:
 - Load typed module configs through ShopCore centralized config path.
 - Read/add/subtract/check player credits.
 - Purchase and sell items with detailed `ShopTransactionResult`.
+- Read what selling an item pays via `GetSellPrice(item)`: its `SellPrice`, or the `DefaultSellRefundRatio` share of its `Price`.
 - Trigger item previews via `PreviewItem(...)`.
 - Enable/disable item per player.
 - Read item expiration timestamp.
@@ -330,6 +331,15 @@ Main capabilities exposed to other plugins:
   - `OnItemExpired`
   - `OnItemPreview`
   - `OnLedgerEntryRecorded`
+
+### Menu metadata
+
+ShopCore draws the same menu text on every renderer and tags its item menus with the item they show, so a custom menu renderer can identify them without parsing that text:
+
+- Item rows in `shopcore.buy.items` and `shopcore.inventory.items`: the row's `MenuComponentBase.Tag` is its `ShopItemDefinition`. Other rows carry no `Tag`.
+- Item pages `shopcore.buy.item` and `shopcore.inventory.item`: the menu's `IMenu.Tag` is the page's `ShopItemDefinition`.
+
+Read the values through the API: `GetItemDisplayName(player, item)`, `item.Price` and `GetSellPrice(item)`.
 
 ### Transaction result
 

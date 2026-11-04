@@ -335,6 +335,11 @@ public interface IShopCoreApiV2
     ShopTransactionResult SellItem(IPlayer player, string itemId);
 
     /// <summary>
+    /// Credits a player gets back for selling this item: its SellPrice, or the configured refund share of its Price.
+    /// </summary>
+    decimal GetSellPrice(ShopItemDefinition item);
+
+    /// <summary>
     /// Returns whether an item is currently enabled for a player.
     /// </summary>
     bool IsItemEnabled(IPlayer player, string itemId);
