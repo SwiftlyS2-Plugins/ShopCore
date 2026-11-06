@@ -5,12 +5,8 @@ on:
     tags:
       - "v*.*.*"
       - "v*.*.*-*"
+  # No version input: the release version always comes from PluginMetadata in ShopCore/src/ShopCore.cs.
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Release version (example: 1.2.3 or v1.2.3)"
-        required: true
-        type: string
 
 jobs:
   release:
@@ -33,13 +29,20 @@ jobs:
         id: version
         shell: bash
         run: |
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            RAW="${{ github.event.inputs.version }}"
-            RAW="${RAW#v}"
-            TAG="v${RAW}"
-          else
-            TAG="${GITHUB_REF_NAME}"
-            RAW="${TAG#v}"
+          MAIN_CS="ShopCore/src/ShopCore.cs"
+          RAW=$(sed -n '/\[PluginMetadata(/,/)]/ s/^.*\bVersion[[:space:]]*=[[:space:]]*"\([^"]*\)".*$/\1/p' "${MAIN_CS}" | head -n 1)
+          RAW="${RAW#v}"
+
+          if [[ -z "${RAW}" ]]; then
+            echo "::error file=${MAIN_CS}::Could not read PluginMetadata.Version."
+            exit 1
+          fi
+
+          TAG="v${RAW}"
+
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF_NAME}" != "${TAG}" ]]; then
+            echo "::error file=${MAIN_CS}::Pushed tag ${GITHUB_REF_NAME} does not match PluginMetadata.Version (${TAG}). Delete the tag, make them agree, and push it again."
+            exit 1
           fi
 
           if [[ "${RAW}" == *"-"* ]]; then
@@ -48,24 +51,41 @@ jobs:
             PRERELEASE="false"
           fi
 
+          echo "Version ${RAW} -> tag ${TAG} (prerelease: ${PRERELEASE})"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${RAW}" >> "$GITHUB_OUTPUT"
           echo "prerelease=${PRERELEASE}" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse to overwrite an existing release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "::error file=ShopCore/src/ShopCore.cs::Release ${TAG} already exists. Bump PluginMetadata.Version to publish a new release."
+            exit 1
+          fi
 
       - name: Ensure Tag Exists (manual run)
         if: github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           TAG="${{ steps.version.outputs.tag }}"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag ${TAG} already exists."
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            TAG_SHA=$(git rev-parse "refs/tags/${TAG}^{commit}")
+            if [[ "${TAG_SHA}" != "${GITHUB_SHA}" ]]; then
+              echo "::error file=ShopCore/src/ShopCore.cs::Tag ${TAG} already exists at ${TAG_SHA}, not at ${GITHUB_SHA}. Bump PluginMetadata.Version, or delete the unreleased tag and re-run."
+              exit 1
+            fi
+            echo "Tag ${TAG} already exists at ${GITHUB_SHA}."
             exit 0
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag "${TAG}" "${GITHUB_SHA}"
-          git push origin "${TAG}"
+          git push origin "refs/tags/${TAG}"
 
       - name: Build
         shell: bash
@@ -187,7 +207,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          name: ShopCore v${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.tag }}
           prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
           body_path: release_notes.md
           files: |
