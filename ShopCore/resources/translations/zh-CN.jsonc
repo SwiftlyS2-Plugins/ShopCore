@@ -67,7 +67,6 @@
   "shop.menu.buy.item.entry": "{0} [{1}]",
   "shop.menu.buy.item.preview": "预览物品",
   "shop.menu.buy.item.buy": "购买 [{0}]",
-  "shop.menu.buy.item.buy_label": "购买",
   "shop.menu.buy.item.owned": "{0} | 已拥有",
   "shop.menu.buy.item.comment": "时长：{0}",
 
@@ -81,7 +80,6 @@
   "shop.menu.inventory.item.toggle.enable": "装备物品",
   "shop.menu.inventory.item.toggle.disable": "卸下物品",
   "shop.menu.inventory.item.sell": "出售 [+{0}]",
-  "shop.menu.inventory.item.sell_label": "出售",
   "shop.menu.inventory.item.sell_hint": "出售价值：+{0} 积分",
   "shop.menu.inventory.item.not_sellable": "此物品无法出售",
 

@@ -141,7 +141,30 @@ public sealed record ShopItemDefinition(
     bool AllowPreview = true,
     bool IsEquipable = true,
     Func<IPlayer?, string>? DisplayNameResolver = null
-);
+)
+{
+    // Not a positional parameter: modules compiled against the existing constructor would throw MissingMethodException.
+    /// <summary>
+    /// The game's inventory image for the item, a path under <c>panorama/images/econ/</c> without extension (e.g. <c>characters/customplayer_ctm_diver_varianta</c>,
+    /// <c>weapons/base_weapons/weapon_decoy</c>), or null. Display metadata for renderers; ShopCore itself never reads it.
+    /// </summary>
+    public string? ImageKey { get; init; }
+}
+
+/// <summary>
+/// A player's state for one equipable item, as read by <see cref="IShopCoreApiV2.GetItemState"/>.
+/// </summary>
+/// <param name="Owned">Whether the player owns the item.</param>
+/// <param name="Enabled">Whether the item is equipped; never true when it is not owned.</param>
+/// <param name="ExpiresAtUnixSeconds">The stored expiry of a timed item, which may already have passed; null when it has none.</param>
+public sealed record ShopItemState(bool Owned, bool Enabled, long? ExpiresAtUnixSeconds)
+{
+    /// <summary>
+    /// Not owned, not enabled, no expiry.
+    /// </summary>
+    public static ShopItemState None { get; } = new(false, false, null);
+}
+
 /// <summary>
 /// Unified transaction result for buy/sell operations.
 /// </summary>
@@ -335,6 +358,11 @@ public interface IShopCoreApiV2
     ShopTransactionResult SellItem(IPlayer player, string itemId);
 
     /// <summary>
+    /// Credits a player gets back for selling this item: its SellPrice, or the configured refund share of its Price.
+    /// </summary>
+    decimal GetSellPrice(ShopItemDefinition item);
+
+    /// <summary>
     /// Returns whether an item is currently enabled for a player.
     /// </summary>
     bool IsItemEnabled(IPlayer player, string itemId);
@@ -348,6 +376,15 @@ public interface IShopCoreApiV2
     /// Gets expiration unix timestamp for a player's item; null if none.
     /// </summary>
     long? GetItemExpireAt(IPlayer player, string itemId);
+
+    /// <summary>
+    /// Gets a player's owned/enabled/expiry state for an item: a pure read for renderers, which call it on every draw.
+    /// Unlike <see cref="IsItemEnabled"/> and ShopCore's own ownership checks, it never expires an item, writes cookies, raises events
+    /// or sends chat, so an item whose expiry has passed but which ShopCore has not swept yet reads as not owned.
+    /// Returns <see cref="ShopItemState.None"/> for an unknown or non-equipable item, an invalid player (no valid controller, a bot,
+    /// or no SteamID yet), or when Cookies is unavailable. Call it on the game thread: it reads the player's controller.
+    /// </summary>
+    ShopItemState GetItemState(IPlayer player, string itemId);
 
     /// <summary>
     /// Gets the core prefix from ShopCore translations

@@ -14,7 +14,7 @@ namespace ShopCore;
     Id = "Shop_Healthshot",
     Name = "Shop Healthshot",
     Author = "T3Marius",
-    Version = "1.0.0",
+    Version = "1.0.1",
     Description = "ShopCore module with healthshot items."
 )]
 public class Shop_Healtshot : BasePlugin
@@ -25,6 +25,7 @@ public class Shop_Healtshot : BasePlugin
     private const string TemplateSectionName = "Main";
     private const string DefaultCategory = "Healings";
     private const string DefaultWeaponDesignerName = "weapon_healthshot";
+    private const string HealthshotImageKey = "weapons/base_weapons/weapon_healthshot";
 
     private IShopCoreApiV2? shopApi;
     private bool handlersRegistered;
@@ -368,7 +369,10 @@ public class Shop_Healtshot : BasePlugin
             Enabled: itemTemplate.Enabled,
             CanBeSold: itemTemplate.CanBeSold,
             DisplayNameResolver: player => ResolveDisplayName(itemTemplate, player)
-        );
+        )
+        {
+            ImageKey = HealthshotImageKey
+        };
         return true;
     }
 

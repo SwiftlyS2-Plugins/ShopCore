@@ -62,7 +62,6 @@
   "shop.menu.buy.title": "Satın Al",
   "shop.menu.buy.category.title": "{0}",
   "shop.menu.buy.item.entry": "{0} [{1}]",
-  "shop.menu.buy.item.buy_label": "Satın Al",
   "shop.menu.buy.item.owned": "{0} | Sahip",
   "shop.menu.buy.item.comment": "Süre: {0}",
 
@@ -76,7 +75,6 @@
   "shop.menu.inventory.item.toggle.enable": "Öğeyi tak",
   "shop.menu.inventory.item.toggle.disable": "Öğeyi çıkar",
   "shop.menu.inventory.item.sell": "Sat [+{0}]",
-  "shop.menu.inventory.item.sell_label": "Sat",
   "shop.menu.inventory.item.sell_hint": "Satış değeri: +{0} kredi",
   "shop.menu.inventory.item.not_sellable": "Bu öğe satılamaz",
 
