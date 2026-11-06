@@ -19,7 +19,7 @@ namespace ShopCore;
     Id = "Shop_PlayerModels",
     Name = "Shop PlayerModels",
     Author = "T3Marius",
-    Version = "1.0.1",
+    Version = "1.0.2",
     Description = "ShopCore module with player model items"
 )]
 public class Shop_PlayerModels : BasePlugin
@@ -888,7 +888,10 @@ public class Shop_PlayerModels : BasePlugin
             Enabled: itemTemplate.Enabled,
             CanBeSold: itemTemplate.CanBeSold,
             DisplayNameResolver: player => ResolveDisplayName(itemTemplate, player)
-        );
+        )
+        {
+            ImageKey = ResolveImageKey(itemTemplate.ModelPath)
+        };
 
         runtime = new PlayerModelItemRuntime(
             ItemId: itemId,
@@ -897,6 +900,22 @@ public class Shop_PlayerModels : BasePlugin
         );
 
         return true;
+    }
+
+    // A stock agent's inventory art; custom and workshop models ship none, so they get no key.
+    private string? ResolveImageKey(string modelPath)
+    {
+        try
+        {
+            var modelName = Path.GetFileNameWithoutExtension(modelPath.Trim().Replace('\\', '/')).ToLowerInvariant();
+            var key = $"characters/customplayer_{modelName}";
+            return Core.GameFileSystem.FileExists($"panorama/images/econ/{key}_png.vtex_c", "GAME") ? key : null;
+        }
+        catch (Exception ex)
+        {
+            Core.Logger.LogWarning(ex, "Could not look up inventory art for player model '{ModelPath}'.", modelPath);
+            return null;
+        }
     }
 
     private string ResolveDisplayName(PlayerModelItemTemplate itemTemplate, IPlayer? player = null)

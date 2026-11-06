@@ -673,7 +673,22 @@ public partial class ShopCore
 
         var key = $"{keyPrefix}.{ToTranslationSlug(segment)}";
         var localized = Localize(player, key);
-        return string.Equals(localized, key, StringComparison.Ordinal) ? segment : localized;
+        return IsMissingTranslation(localized, key) ? segment : localized;
+    }
+
+    // SwiftlyS2 answers a key that is in neither the player's file nor en.jsonc with "{language}.{key}".
+    private static bool IsMissingTranslation(string localized, string key)
+    {
+        if (string.Equals(localized, key, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var dot = localized.Length - key.Length - 1;
+        return dot > 0
+            && localized[dot] == '.'
+            && localized.EndsWith(key, StringComparison.Ordinal)
+            && localized.IndexOf('.') == dot;
     }
 
     private static string ToTranslationSlug(string input)

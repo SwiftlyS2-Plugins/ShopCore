@@ -15,7 +15,7 @@ namespace ShopCore;
     Id = "Shop_DecoyTeleport",
     Name = "Shop DecoyTeleport",
     Author = "T3Marius",
-    Version = "1.0.0",
+    Version = "1.0.1",
     Description = "ShopCore module with decoy teleport items."
 )]
 public class Shop_DecoyTeleport : BasePlugin
@@ -26,6 +26,7 @@ public class Shop_DecoyTeleport : BasePlugin
     private const string TemplateSectionName = "Main";
     private const string DefaultCategory = "Abilities";
     private const float DefaultTeleportZOffset = 8f;
+    private const string DecoyImageKey = "weapons/base_weapons/weapon_decoy";
 
     private IShopCoreApiV2? shopApi;
     private readonly object stateSync = new();
@@ -114,7 +115,10 @@ public class Shop_DecoyTeleport : BasePlugin
             Enabled: Config.Decoy.Enabled,
             AllowPreview: false,
             DisplayNameResolver: player => player == null ? Core.Localizer["item.name"] : Core.Translation.GetPlayerLocalizer(player)["item.name"]
-        ));
+        )
+        {
+            ImageKey = DecoyImageKey
+        });
 
         if (!itemRegistered)
         {

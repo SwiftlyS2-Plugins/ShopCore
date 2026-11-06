@@ -305,7 +305,10 @@ public sealed partial class Shop_CustomWeapon
             CanBeSold: template.CanBeSold,
             AllowPreview: template.AllowPreview,
             IsEquipable: template.IsEquipable
-        );
+        )
+        {
+            ImageKey = ResolveImageKey(baseWeapon)
+        };
 
         runtime = new CustomWeaponRuntime(
             itemId,
@@ -319,6 +322,21 @@ public sealed partial class Shop_CustomWeapon
         );
 
         return true;
+    }
+
+    // The base weapon's stock art, not the custom model's; a base weapon the game ships no art for gets no key.
+    private string? ResolveImageKey(string baseWeapon)
+    {
+        try
+        {
+            var key = $"weapons/base_weapons/{baseWeapon.Trim().ToLowerInvariant()}";
+            return Core.GameFileSystem.FileExists($"panorama/images/econ/{key}_png.vtex_c", "GAME") ? key : null;
+        }
+        catch (Exception ex)
+        {
+            Core.Logger.LogWarning(ex, "[Shop_CustomWeapon] Could not look up inventory art for base weapon '{BaseWeapon}'.", baseWeapon);
+            return null;
+        }
     }
 
     private string GetPrefix(IPlayer player)

@@ -951,6 +951,30 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
         return loaded;
     }
 
+    // GetCachedOrLoadState without its cookie writes: Cookies' GetOrDefault stores the default it returns, and the legacy migration saves.
+    private CachedItemState PeekState(IPlayer player, string normalizedItemId)
+    {
+        var key = (player.SteamID, normalizedItemId);
+        if (itemStateCache.TryGetValue(key, out var cached))
+        {
+            return cached;
+        }
+
+        var cookies = plugin.playerCookies;
+        var owned = cookies.Get<bool>(player, OwnedKey(normalizedItemId));
+        var enabled = cookies.Get<bool>(player, EnabledKey(normalizedItemId));
+        var expireAt = owned || enabled ? cookies.Get<long>(player, ExpireAtKey(normalizedItemId)) : 0L;
+        var peeked = new CachedItemState(owned || enabled, enabled, expireAt);
+
+        // Legacy "enabled"-only data stays uncached, or GetCachedOrLoadState would never run its migration.
+        if (owned || !enabled)
+        {
+            itemStateCache.TryAdd(key, peeked);
+        }
+
+        return peeked;
+    }
+
     internal void ClearPlayerCache(ulong steamId)
     {
         if (steamId == 0)
@@ -1114,6 +1138,29 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
 
         var value = GetCachedOrLoadState(player, item.Id).ExpireAt;
         return value > 0L ? value : null;
+    }
+
+    public ShopItemState GetItemState(IPlayer player, string itemId)
+    {
+        // Renderers also draw for players without a pawn, which IPlayer.IsValid requires, so this gates on the controller.
+        if (!EnsureCookiesApi()
+            || player?.Controller is not { IsValid: true }
+            || player.IsFakeClient
+            || player.SteamID == 0
+            || !TryGetItem(itemId, out var item)
+            || !item.IsEquipable)
+        {
+            return ShopItemState.None;
+        }
+
+        // IsItemOwnedInternal's expiry rule, without the sweep it runs.
+        var state = PeekState(player, item.Id);
+        var owned = state.Owned && (state.ExpireAt <= 0L || state.ExpireAt > DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        long? expiresAt = state.ExpireAt > 0L ? state.ExpireAt : null;
+
+        return owned || expiresAt.HasValue
+            ? new ShopItemState(owned, owned && state.Enabled, expiresAt)
+            : ShopItemState.None;
     }
 
     public IReadOnlyCollection<ShopLedgerEntry> GetRecentLedgerEntries(int maxEntries = 100)

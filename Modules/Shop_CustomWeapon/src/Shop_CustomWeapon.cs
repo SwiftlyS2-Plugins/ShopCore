@@ -22,7 +22,7 @@ namespace ShopCore;
 
 [PluginMetadata(
     Id = "Shop_CustomWeapon",
-    Version = "1.0.1",
+    Version = "1.0.2",
     Name = "Shop Custom Weapon",
     Author = "aga",
     Description = "Allows players to purchase custom weapon variants from ShopCore"
