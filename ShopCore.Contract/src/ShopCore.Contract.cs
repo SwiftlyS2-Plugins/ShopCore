@@ -312,7 +312,7 @@ public interface IShopCoreApiV2
     /// <param name="config">Config payload to save.</param>
     /// <param name="fileName">Config file name (stored under <c>configs/plugins/ShopCore/modules</c>).</param>
     /// <param name="sectionName">Optional top-level section name. Empty means root object.</param>
-    /// <param name="overwrite">If true, replaces existing file.</param>
+    /// <param name="overwrite">If true, replaces existing file. A file the last <see cref="LoadModuleConfig{T}"/> could not read is never replaced.</param>
     /// <returns>True when file is written successfully.</returns>
     bool SaveModuleConfig<T>(
         string modulePluginId,

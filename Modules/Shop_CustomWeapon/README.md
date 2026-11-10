@@ -60,7 +60,7 @@ Each entry in `Items` supports the following fields:
 | `CanBeSold` | `bool` | No | Whether the item can be sold. Defaults to `true`. |
 | `AllowPreview` | `bool` | No | Whether preview is allowed. Defaults to `true`. |
 | `IsEquipable` | `bool` | No | Whether the item can be equipped. Defaults to `true`. |
-| `GrantOnPurchase` | `bool` | No | Give/apply on purchase. Defaults to `true`. |
+| `GrantOnPurchase` | `bool` | No | Give/apply on purchase. When `false`, a bought item first applies at the next spawn; one-time items always apply on purchase. Defaults to `true`. |
 | `GrantOnRoundStart` | `bool` | No | Reapply on round start. Defaults to `true`. |
 | `SelectWeaponOnEquip` | `bool` | No | Select the weapon after giving it. Defaults to `true`. |
 
@@ -231,6 +231,8 @@ From the module directory:
 ```powershell
 dotnet build
 ```
+
+The output goes to `build/plugins/Shop_CustomWeapon/` at the repository root, and the release ships it in `Modules.zip`.
 
 ## Notes
 

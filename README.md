@@ -1,447 +1,90 @@
 <div align="center">
-  <img src="https://pan.samyyc.dev/s/VYmMXE" />
-  <h2><strong>ShopCore</strong></h2>
-  <h3>A modular shop core plugin for SwiftlyS2 with credits, inventory, categories, and sell support.</h3>
+  <img src="https://pan.samyyc.dev/s/VYmMXE" alt="ShopCore logo" />
+  <h1><strong>ShopCore</strong></h1>
+  <p>A credits shop for CS2: modules add the items, ShopCore sells them.</p>
 </div>
 
 <p align="center">
   <img src="https://img.shields.io/badge/build-passing-brightgreen" alt="Build Status">
-  <img src="https://img.shields.io/github/downloads/SwiftlyS2-Plugins/ShopCore/total" alt="Downloads">
-  <img src="https://img.shields.io/github/stars/SwiftlyS2-Plugins/ShopCore?style=flat&logo=github" alt="Stars">
-  <img src="https://img.shields.io/github/license/SwiftlyS2-Plugins/ShopCore" alt="License">
+  <a href="https://github.com/SwiftlyS2-Plugins/ShopCore/releases/latest"><img src="https://img.shields.io/github/v/release/SwiftlyS2-Plugins/ShopCore?style=flat&logo=github&cacheSeconds=3600" alt="Latest Release"></a>
+  <img src="https://img.shields.io/github/downloads/SwiftlyS2-Plugins/ShopCore/total?style=flat&logo=github&cacheSeconds=3600" alt="Downloads">
+  <img src="https://img.shields.io/github/stars/SwiftlyS2-Plugins/ShopCore?style=flat&logo=github&cacheSeconds=3600" alt="Stars">
 </p>
 
-## Overview
-
-ShopCore is the base shop system for SwiftlyS2. It provides:
-
-- A shared contract (`IShopCoreApiV1`) for other plugins to register items and interact with credits.
-- Buy and inventory menus with category and optional subcategory navigation.
-- Item preview flow from buy menus (`Preview item`) for module-defined effects.
-- Credit economy integration via `Economy.API.v1`.
-- Item state persistence and expiration via `Cookies.Player.V1`.
-- Optional item selling, gifting, starting credits, and timed income.
-
-## Included Modules
-
-Current repository modules built for ShopCore:
-
-- `Shop_Healthshot`: Healthshot consumables and timed healthshot ownership.
-- `Shop_SmokeColor`: Smoke grenade color customization.
-- `Shop_Killscreen`: Kill-screen visual trigger item.
-- `Shop_Bhop`: Bunnyhop item with smooth convar replication behavior.
-- `Shop_Coinflip`: Credit coinflip system integrated with ShopCore credits.
-- `Shop_Flags`: Player chat/identity flags integration.
-- `Shop_HitSounds`: Hit sound playback module.
-- `Shop_Parachute`: Hold-`E` parachute with per-item physics settings.
-- `Shop_PlayerColor`: Player render-color module (static and rainbow).
-- `Shop_PlayerModels`: Player model items with team-default fallback.
-- `Shop_Tracers`: Bullet tracer beam module (static/team/random color modes).
-
-## Requirements
-
-This plugin depends on these shared interfaces:
-
-- `Cookies.Player.V1` [Click Here](https://github.com/SwiftlyS2-Plugins/Cookies/releases/tag/v1.0.13)
-- `Economy.API.v1` [Click Here](https://github.com/SwiftlyS2-Plugins/Economy/releases/tag/v2.0.1)
-
-Make sure the Cookies and Economy plugins are loaded and export matching contract DLLs.
-
-## Commands
-
-All command aliases are configurable in `shopcore.jsonc`.
-
-| Command (default alias)                                                     | Description                                                         |
-| :-------------------------------------------------------------------------- | :------------------------------------------------------------------ |
-| `!shop` / `!store`                                                          | Opens the main shop menu.                                           |
-| `!buy`                                                                      | Opens the buy categories menu directly.                             |
-| `!inventory` / `!inv`                                                       | Opens the inventory categories menu directly.                       |
-| `!credits` / `!balance`                                                     | Shows your current credits balance.                                 |
-| `!giftcredits <target> <amount>` / `!gift <target> <amount>`                | Transfers credits to another player (if enabled).                   |
-| `!givecredits <target> <amount>` / `!addcredits ...`                        | Adds credits to a player (admin permission required).               |
-| `!removecredits <target> <amount>` / `!takecredits ...` / `!subcredits ...` | Removes credits from a player (admin permission required).          |
-| `!shopcorereload` / `!shopreload`                                           | Reloads ShopCore runtime config and command bindings.               |
-| `!reloadmodulesconfig` / `!shopmodulesreload`                               | Reloads ShopCore module config sync and reloads known shop modules. |
-| `!shopcorestatus` / `!shopstatus`                                           | Shows ShopCore runtime diagnostics.                                 |
-
-Default admin permission: `shopcore.admin.credits`
-
-## Configuration (`shopcore.jsonc`)
-
-ShopCore reads config from the `Main` section.
-
-### Commands (`Main.Commands`)
-
-| Setting                 | Default                   | Description                                                         |
-| :---------------------- | :------------------------ | :------------------------------------------------------------------ |
-| `RegisterAsRawCommands` | `true`                    | Registers commands as raw commands through Swiftly command service. |
-| `OpenShopMenu`          | `["shop", "store"]`       | Aliases for main shop menu.                                         |
-| `OpenBuyMenu`           | `["buy"]`                 | Aliases for buy menu.                                               |
-| `OpenInventoryMenu`     | `["inventory", "inv"]`    | Aliases for inventory menu.                                         |
-| `ShowCredits`           | `["credits", "balance"]`  | Aliases to display current balance.                                 |
-| `GiftCredits`           | `["giftcredits", "gift"]` | Aliases for player-to-player transfer.                              |
-
-### Admin Commands (`Main.Commands.Admin`)
-
-| Setting               | Default                                          | Description                                                          |
-| :-------------------- | :----------------------------------------------- | :------------------------------------------------------------------- |
-| `Permission`          | `shopcore.admin.credits`                         | Permission required for admin credit commands.                       |
-| `GiveCredits`         | `["givecredits", "addcredits"]`                  | Aliases to add credits to a target.                                  |
-| `RemoveCredits`       | `["removecredits", "takecredits", "subcredits"]` | Aliases to remove credits from a target.                             |
-| `ReloadCore`          | `["shopcorereload", "shopreload"]`               | Aliases to reload ShopCore config/commands.                          |
-| `ReloadModulesConfig` | `["reloadmodulesconfig", "shopmodulesreload"]`   | Aliases to re-sync module configs and reload known ShopCore modules. |
-| `Status`              | `["shopcorestatus", "shopstatus"]`               | Aliases to show ShopCore runtime status.                             |
-
-### Credits (`Main.Credits`)
-
-| Setting                             | Default   | Description                                                  |
-| :---------------------------------- | :-------- | :----------------------------------------------------------- |
-| `WalletName`                        | `credits` | Economy wallet kind used by ShopCore.                        |
-| `StartingBalance`                   | `0`       | Minimum initial balance to enforce.                          |
-| `GrantStartingBalanceOncePerPlayer` | `true`    | Applies starting balance only once per player using cookies. |
-| `NotifyWhenStartingBalanceApplied`  | `true`    | Sends a localized message when starting balance is applied.  |
-
-### Timed Income (`Main.Credits.TimedIncome`)
-
-| Setting             | Default | Description                                  |
-| :------------------ | :------ | :------------------------------------------- |
-| `Enabled`           | `false` | Enables periodic credit rewards.             |
-| `AmountPerInterval` | `0`     | Credits granted each interval.               |
-| `IntervalSeconds`   | `300`   | Interval in seconds.                         |
-| `NotifyPlayers`     | `false` | Sends message each time credits are granted. |
-
-### Credit Transfer (`Main.Credits.Transfer`)
-
-| Setting             | Default | Description                               |
-| :------------------ | :------ | :---------------------------------------- |
-| `Enabled`           | `true`  | Enables gifting credits between players.  |
-| `MinimumAmount`     | `1`     | Minimum transferable amount.              |
-| `AllowSelfTransfer` | `false` | Allows gifting credits to yourself.       |
-| `NotifyReceiver`    | `true`  | Notifies receiver on successful transfer. |
-
-### Admin Credit Adjustments (`Main.Credits.AdminAdjustments`)
-
-| Setting                          | Default | Description                                                  |
-| :------------------------------- | :------ | :----------------------------------------------------------- |
-| `NotifyTargetPlayer`             | `true`  | Notifies player when admin changes their balance.            |
-| `ClampRemovalToAvailableBalance` | `true`  | Caps remove command to available credits instead of failing. |
-
-### Menus (`Main.Menus`)
-
-| Setting                        | Default             | Description                                       |
-| :----------------------------- | :------------------ | :------------------------------------------------ |
-| `FreezePlayerWhileOpen`        | `false`             | Freezes player while menu is open.                |
-| `EnableMenuSound`              | `true`              | Enables menu sound effects.                       |
-| `MaxVisibleItems`              | `5`                 | Max visible items in menu page (clamped to 1..5). |
-| `DefaultCommentTranslationKey` | `shop.menu.comment` | Translation key for default menu comment line.    |
-
-### Behavior (`Main.Behavior`)
-
-| Setting                  | Default | Description                                                  |
-| :----------------------- | :------ | :----------------------------------------------------------- |
-| `AllowSelling`           | `true`  | Enables/disables selling items.                              |
-| `DefaultSellRefundRatio` | `0.50`  | Fallback refund ratio when item does not define `SellPrice`. |
-
-### Ledger (`Main.Ledger`)
-
-| Setting              | Default | Description                                           |
-| :------------------- | :------ | :---------------------------------------------------- |
-| `Enabled`            | `true`  | Enables transaction ledger recording.                 |
-| `MaxInMemoryEntries` | `2000`  | Max entries kept when using in-memory ledger backend. |
-
-### Ledger Persistence (`Main.Ledger.Persistence`)
-
-| Setting             | Default   | Description                                                                          |
-| :------------------ | :-------- | :----------------------------------------------------------------------------------- |
-| `Enabled`           | `false`   | Enables persistent ledger backend via FreeSql.                                       |
-| `Provider`          | `sqlite`  | Persistence provider (`sqlite`, `mysql`, or `auto`).                                 |
-| `ConnectionName`    | `default` | Swiftly database connection name used when `ConnectionString` is empty.              |
-| `ConnectionString`  | `""`      | FreeSql connection string. Supports `${PluginDataDirectory}` token for sqlite paths. |
-| `AutoSyncStructure` | `true`    | Auto-creates/updates the ledger table structure.                                     |
-
-### Example
-
-```jsonc
-{
-  "Main": {
-    "Commands": {
-      "RegisterAsRawCommands": true,
-      "OpenShopMenu": ["shop", "store"],
-      "OpenBuyMenu": ["buy"],
-      "OpenInventoryMenu": ["inventory", "inv"],
-      "ShowCredits": ["credits", "balance"],
-      "GiftCredits": ["giftcredits", "gift"],
-      "Admin": {
-        "Permission": "shopcore.admin.credits",
-        "GiveCredits": ["givecredits", "addcredits"],
-        "RemoveCredits": ["removecredits", "takecredits", "subcredits"],
-        "ReloadCore": ["shopcorereload", "shopreload"],
-        "ReloadModulesConfig": ["reloadmodulesconfig", "shopmodulesreload"],
-        "Status": ["shopcorestatus", "shopstatus"],
-      },
-    },
-    "Credits": {
-      "WalletName": "credits",
-      "StartingBalance": 0,
-      "GrantStartingBalanceOncePerPlayer": true,
-      "NotifyWhenStartingBalanceApplied": true,
-      "TimedIncome": {
-        "Enabled": false,
-        "AmountPerInterval": 0,
-        "IntervalSeconds": 300,
-        "NotifyPlayers": false,
-      },
-      "Transfer": {
-        "Enabled": true,
-        "MinimumAmount": 1,
-        "AllowSelfTransfer": false,
-        "NotifyReceiver": true,
-      },
-      "AdminAdjustments": {
-        "NotifyTargetPlayer": true,
-        "ClampRemovalToAvailableBalance": true,
-      },
-    },
-    "Menus": {
-      "FreezePlayerWhileOpen": false,
-      "EnableMenuSound": true,
-      "MaxVisibleItems": 5,
-      "DefaultCommentTranslationKey": "shop.menu.comment",
-    },
-    "Behavior": {
-      "AllowSelling": true,
-      "DefaultSellRefundRatio": 0.5,
-    },
-    "Ledger": {
-      "Enabled": true,
-      "MaxInMemoryEntries": 2000,
-      "Persistence": {
-        "Enabled": false,
-        "Provider": "sqlite",
-        "ConnectionName": "default",
-        "ConnectionString": "",
-        "AutoSyncStructure": true,
-      },
-    },
-  },
-}
-```
-
-## Module Config System
-
-ShopCore keeps module runtime configs centralized in Swiftly configs.
-
-### How It Works
-
-When a module calls `IShopCoreApiV1.LoadModuleConfig<T>(moduleId, fileName, sectionName)`:
-
-1. ShopCore resolves the centralized config target in:
-   `game/csgo/addons/swiftlys2/configs/plugins/ShopCore/modules/<fileName>`
-2. If the file does not exist, ShopCore creates it automatically.
-3. ShopCore reads/deserializes from that centralized file.
-
-This lets module authors define a config class in code and server owners edit one centralized config location.
-
-### Behavior Notes
-
-- Use `SaveModuleConfig` if you want to write defaults explicitly.
-- JSONC is supported (comments + trailing commas).
-- `sectionName` (usually `Main`) is optional; if not found, root object is used.
-- Invalid relative paths (absolute paths / `..`) are rejected for safety.
-- Keep module config file names unique (for example `healthshot_config.jsonc`, `smokecolor_config.jsonc`) since all centralized files share the same `modules/` folder.
-
-## Category and Subcategory System
-
-ShopCore now supports optional subcategories by using category paths in item definitions.
-
-- Single level: `Visuals`
-- With subcategory: `Visuals/Smoke Colors` or `Visuals > Smoke Colors`
-
-Menus resolve this as:
-
-- `Category -> Items` when no subcategories exist
-- `Category -> Subcategory -> Items` when subcategories are present
-
-This is fully backward compatible with existing one-level categories.
-
-Menus translate each name through ShopCore's translation files: `shop.menu.category.<name>` for the category and `shop.menu.subcategory.<name>` for the rest, with `<name>` lowercased and spaces and symbols turned into `_` (`Hit Sounds` → `shop.menu.subcategory.hit_sounds`). A name with no key is shown as written.
-
-## Item Preview System
-
-ShopCore supports optional item previews directly from buy item actions.
-
-- `ShopItemDefinition.AllowPreview` controls whether preview option is shown (default `true`).
-- Buy flow is: `Buy -> Category -> Item -> (Preview item / Buy)`.
-- Modules can subscribe to `OnItemPreview` and run custom preview logic.
-- Modules can also trigger previews manually via `PreviewItem(player, itemId)`.
-
-### Typical preview patterns
-
-- Visual modules: temporary model/color/effect for a few seconds.
-- Projectile/equipment modules: temporary preview window for next usage.
-- Utility/consumable modules: descriptive chat preview explaining behavior.
-- Movement modules: short timed trial with cooldown to avoid spam.
-
-### Recommended Layout
-
-- Keep editable centralized files in Swiftly configs:
-  `game/csgo/addons/swiftlys2/configs/plugins/ShopCore/modules/items_config.jsonc`
-
-### Example (Healthshot Module)
-
-- `game/csgo/addons/swiftlys2/configs/plugins/ShopCore/modules/items_config.jsonc`
-
-## Shop Contract Summary (`ShopCore.Contract`)
-
-### Amount rules
-
-Although the contract uses `decimal`, current Economy integration is integer-based.  
-Use positive whole-number credit amounts for item prices and credit operations.
-
-### Item model
-
-`ShopItemDefinition` fields:
-
-- `Id`, `DisplayName`, `Category`
-- `Price`, optional `SellPrice`
-- optional `Duration`
-- `Type` (`Passive`, `Consumable`, `Temporary`, `Permanent`)
-- `Team` (`Any`, `T`, `CT`)
-- `Enabled`, `CanBeSold`, `AllowPreview`
-- optional `ImageKey` (init-only, set with an object initializer): the game's inventory image for the item, a path under `panorama/images/econ/` without extension (e.g. `weapons/base_weapons/weapon_decoy`). Display metadata for renderers; ShopCore never reads it. Shop_PlayerModels and Shop_CustomWeapon set it when the game ships art for the model or base weapon; Shop_Healthshot and Shop_DecoyTeleport always set it.
-
-### Core API (`IShopCoreApiV1`)
-
-Main capabilities exposed to other plugins:
-
-- Register/unregister/query items.
-- Load typed module configs through ShopCore centralized config path.
-- Read/add/subtract/check player credits.
-- Purchase and sell items with detailed `ShopTransactionResult`.
-- Read what selling an item pays via `GetSellPrice(item)`: its `SellPrice`, or the `DefaultSellRefundRatio` share of its `Price`.
-- Trigger item previews via `PreviewItem(...)`.
-- Enable/disable item per player.
-- Read item expiration timestamp.
-- Read a player's owned/enabled/expiry state for an item via `GetItemState(player, itemId)`: a pure read for renderers that, unlike `IsItemEnabled`, never expires an item, writes cookies, raises events or sends chat (an item past its expiry that ShopCore has not swept yet reads as not owned).
-- Read recent transaction ledger entries (global/per-player).
-- Subscribe to events:
-  - `OnBeforeItemPurchase` (cancelable)
-  - `OnBeforeItemSell` (cancelable)
-  - `OnBeforeItemToggle` (cancelable)
-  - `OnItemRegistered`
-  - `OnItemPurchased`
-  - `OnItemSold`
-  - `OnItemToggled`
-  - `OnItemExpired`
-  - `OnItemPreview`
-  - `OnLedgerEntryRecorded`
-
-### Menu metadata
-
-ShopCore draws the same menu text on every renderer and tags its item menus with the item they show, so a custom menu renderer can identify them without parsing that text:
-
-- Item rows in `shopcore.buy.items` and `shopcore.inventory.items`: the row's `MenuComponentBase.Tag` is its `ShopItemDefinition`. Other rows carry no `Tag`.
-- Item pages `shopcore.buy.item` and `shopcore.inventory.item`: the menu's `IMenu.Tag` is the page's `ShopItemDefinition`.
-
-Read the values through the API: `GetItemDisplayName(player, item)`, `item.Price`, `GetSellPrice(item)`, `item.ImageKey` for the item's art and `GetItemState(player, item.Id)` for whether the player owns and has equipped it.
-
-### Transaction result
-
-`ShopTransactionResult` returns:
-
-- `Status` (`Success`, `ItemNotFound`, `ItemDisabled`, `TeamNotAllowed`, `AlreadyOwned`, `NotOwned`, `NotSellable`, `InsufficientCredits`, `InvalidAmount`, `InternalError`, `BlockedByModule`)
-- `Message`
-- `Item`
-- `CreditsAfter`
-- `CreditsDelta`
-- `ExpiresAtUnixSeconds`
-
-## Quick Integration Example
-
-```csharp
-using ShopCore.Contract;
-using SwiftlyS2.Shared;
-using SwiftlyS2.Shared.Plugins;
-
-public class MyModule : BasePlugin
-{
-    private IShopCoreApiV1 shop = null!;
-
-    public MyModule(ISwiftlyCore core) : base(core) { }
-
-    public override void UseSharedInterface(IInterfaceManager interfaceManager)
-    {
-        shop = interfaceManager.GetSharedInterface<IShopCoreApiV1>("ShopCore.API.v1");
-    }
-
-    public override void Load(bool hotReload)
-    {
-        var config = shop.LoadModuleConfig<MyModuleConfig>(
-            "MyModule",
-            "items_config.jsonc",
-            "Main"
-        );
-
-        shop.RegisterItem(new ShopItemDefinition(
-            Id: "healthshot",
-            DisplayName: "Health Shot",
-            Category: "Healings",
-            Price: config.DefaultPrice,
-            SellPrice: 250,
-            Duration: TimeSpan.FromSeconds(30),
-            Type: ShopItemType.Temporary,
-            Team: ShopItemTeam.Any,
-            Enabled: true,
-            CanBeSold: true,
-            AllowPreview: true
-        ));
-    }
-
-    public override void Unload() { }
-}
-public class MyModuleConfig
-{
-  public decimal DefaultPrice { get; set; } = 400;
-}
-```
-
-### Cancelable Hook Example
-
-```csharp
-// Example: block expensive items for non-admin players.
-shop.OnBeforeItemPurchase += context =>
-{
-    if (context.Item.Price > 5000 && !Core.Permission.PlayerHasPermission(context.Player.SteamID, "shop.vip"))
-    {
-        context.BlockLocalized("shop.error.vip_required", context.Item.DisplayName);
-        // or: context.Block("You need VIP to buy this item.");
-    }
-};
-```
-
-## Localization
-
-Default translations are in:
-
-- `ShopCore/resources/translations/en.jsonc`
-
-## Installation
-
-1. Build or download the plugin.
-2. Copy plugin output to:
-   `.../game/csgo/addons/swiftlys2/plugins/ShopCore/`
-3. Ensure these files exist in that folder:
-   - `ShopCore.dll`
-   - `resources/exports/ShopCore.Contract.dll`
-   - `resources/translations/en.jsonc`
-   - `.../addons/swiftlys2/configs/plugins/ShopCore/modules/...` (for centralized module configs)
-4. Ensure Economy and Cookies plugins are also installed and loaded.
-5. Start/restart the server.
-
-## Building
-
-- Open `ShopCore.sln` in your .NET IDE.
-- Build solution.
-- Output is generated under:
-  - `build/plugins/ShopCore/`
-  - `build/plugins/ShopCore/resources/exports/`
+> [!NOTE]
+> **ShopCore needs [Cookies](https://github.com/SwiftlyS2-Plugins/Cookies) and [Economy](https://github.com/SwiftlyS2-Plugins/Economy).**<br>
+> Without them it loads but registers no commands. Install both first — [Installation](../../wiki/Installation).
+
+---
+
+## ✨ Features
+
+The shop itself; [modules](#-modules) add the items.
+
+- 🛒 **Shop menu** — **Buy** and **Inventory**, by category and subcategory, in `!shop`
+- 💰 **Credits** — an Economy wallet, with a starting balance and timed income
+- 🎁 **Gifting** — players give each other credits
+- 🎒 **Owned items** — equip, unequip and sell from the inventory
+- ⏳ **Timed items** — items that run out a set time after purchase
+- 👀 **Previews** — try an item before buying it
+- 🔒 **Limits** — items for one team, or for players with a permission
+- 📒 **Ledger** — purchases, sales and credit changes, in memory, SQLite or MySQL
+- 🔁 **Live reload** — `!shopcorereload` and `!reloadmodulesconfig`
+- 🧩 **Module API** — other plugins add items, move credits and react to purchases
+
+## 🚀 Getting Started
+
+| Guide | Description |
+|-------|-------------|
+| **[Features](../../wiki/Features)** | Everything ShopCore does |
+| **[Installation](../../wiki/Installation)** | Install and verify |
+| **[Commands](../../wiki/Commands)** | Player and admin commands |
+| **[Menus](../../wiki/Menus)** | The `!shop` menu |
+| **[Configuration](../../wiki/Configuration)** | Every setting, with defaults |
+
+## ⚙️ Running the Shop
+
+| Topic | Description |
+|-------|-------------|
+| **[Credits](../../wiki/Credits)** | Starting balance, timed income, gifts, admin changes |
+| **[Items](../../wiki/Items)** | Item fields, durations, selling, previews, categories |
+| **[Storage](../../wiki/Storage)** | Where credits, items and the ledger are kept |
+
+## 🧩 Modules
+
+Official modules. **[Modules Overview](../../wiki/Modules)** covers installing them, their kinds and their files.
+
+| Module | Kind | What it adds |
+|--------|------|--------------|
+| **[Shop_Bhop](../../wiki/Module-Bhop)** | equipable | Auto-bunnyhop, with an optional speed cap |
+| **[Shop_Coinflip](../../wiki/Module-Coinflip)** | credits | `!coinflip` — bet credits on a coin toss |
+| **[Shop_CustomWeapon](../../wiki/Module-CustomWeapon)** | equipable | Custom weapon models and skins, and custom knives |
+| **[Shop_DecoyTeleport](../../wiki/Module-DecoyTeleport)** | one-time | A decoy that teleports you to where it lands |
+| **[Shop_Flags](../../wiki/Module-Flags)** | equipable | A permission while the item is equipped |
+| **[Shop_Healthshot](../../wiki/Module-Healthshot)** | one-time, equipable | A healthshot now, or one every round |
+| **[Shop_HitSounds](../../wiki/Module-HitSounds)** | equipable | A sound each time you hit a player |
+| **[Shop_Killscreen](../../wiki/Module-Killscreen)** | equipable | A screen effect on every kill |
+| **[Shop_Parachute](../../wiki/Module-Parachute)** | equipable | Hold **E** to glide down |
+| **[Shop_PlayerColor](../../wiki/Module-PlayerColor)** | equipable | A coloured or rainbow player model |
+| **[Shop_PlayerModels](../../wiki/Module-PlayerModels)** | equipable | A different player model |
+| **[Shop_Rewards](../../wiki/Module-Rewards)** | credits | Credits for kills, assists, MVPs and wins |
+| **[Shop_SmokeColor](../../wiki/Module-SmokeColor)** | equipable | Coloured smoke from your smoke grenades |
+| **[Shop_Tracers](../../wiki/Module-Tracers)** | equipable | A beam to every bullet impact |
+| **[Shop_VIP](../../wiki/Module-VIP)** | one-time | VIPCore groups |
+
+---
+
+## 📚 Reference
+
+| Topic | Description |
+|-------|-------------|
+| **[API Reference](../../wiki/API-Reference)** | Every member of `IShopCoreApiV2` |
+| **[API Integration](../../wiki/API-Integration)** | Build your own module |
+| **[Building](../../wiki/Building)** | Build from source and release |
+| **[Troubleshooting](../../wiki/Troubleshooting)** | Symptoms, causes and fixes |
+
+---
+
+## 🤝 Report issues or request features
+
+- **Issues**: [GitHub Issues](https://github.com/SwiftlyS2-Plugins/ShopCore/issues)

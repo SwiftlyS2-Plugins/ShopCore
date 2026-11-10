@@ -1,7 +1,5 @@
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using ShopCore.Contract;
 using SwiftlyS2.Shared;
 using SwiftlyS2.Shared.Events;
@@ -25,7 +23,9 @@ namespace ShopCore;
 public class Shop_PlayerModels : BasePlugin
 {
     private const string ShopCoreInterfaceKey = "ShopCore.API.v2";
-    private const string ConfigFileName = "config.jsonc";
+    private const string ModulePluginId = "Shop_PlayerModels";
+    private const string ConfigFileName = "playermodels_config.jsonc";
+    private const string LegacyConfigFileName = "config.jsonc";
     private const string ConfigSectionName = "Main";
     private const string DefaultCategory = "Visuals/Player Models";
     private const float PreviewDurationSeconds = 8f;
@@ -42,8 +42,6 @@ public class Shop_PlayerModels : BasePlugin
     private readonly Dictionary<int, PlayerModelPreviewState> previewStateByPlayerId = new();
     private long previewSessionCounter;
 
-    private PlayerModelsModuleConfig? moduleConfig;
-    private ServiceProvider? serviceProvider;
     private PlayerModelsModuleSettings runtimeSettings = new();
 
     public Shop_PlayerModels(ISwiftlyCore core) : base(core)
@@ -82,7 +80,6 @@ public class Shop_PlayerModels : BasePlugin
 
     public override void Load(bool hotReload)
     {
-        LoadModuleConfig();
         Core.Event.OnPrecacheResource += OnPrecacheResource;
 
         if (shopApi is not null && !handlersRegistered)
@@ -109,9 +106,6 @@ public class Shop_PlayerModels : BasePlugin
         }
 
         UnregisterItemsAndHandlers();
-        serviceProvider?.Dispose();
-        serviceProvider = null;
-        moduleConfig = null;
     }
 
     [GameEventHandler(HookMode.Post)]
@@ -168,29 +162,32 @@ public class Shop_PlayerModels : BasePlugin
 
         UnregisterItemsAndHandlers();
 
-        if (moduleConfig == null)
-        {
-            LoadModuleConfig();
-        }
+        MigrateLegacyConfig(shopApi);
 
-        if (moduleConfig == null)
-        {
-            Core.Logger.LogWarning("PlayerModels config could not be loaded.");
-            return;
-        }
+        var moduleConfig = shopApi.LoadModuleConfig<PlayerModelsModuleConfig>(
+            ModulePluginId,
+            ConfigFileName,
+            ConfigSectionName
+        );
 
+        NormalizeConfig(moduleConfig);
         runtimeSettings = moduleConfig.Settings;
 
-        var category = string.IsNullOrWhiteSpace(moduleConfig.Settings.Category)
-            ? DefaultCategory
-            : moduleConfig.Settings.Category.Trim();
+        var category = moduleConfig.Settings.Category;
 
         if (moduleConfig.Items.Count == 0)
         {
             moduleConfig = CreateDefaultConfig();
             category = moduleConfig.Settings.Category;
             runtimeSettings = moduleConfig.Settings;
-            Core.Logger.LogWarning("PlayerModels config has no items. Using in-memory defaults.");
+
+            _ = shopApi.SaveModuleConfig(
+                ModulePluginId,
+                moduleConfig,
+                ConfigFileName,
+                ConfigSectionName,
+                overwrite: true
+            );
         }
 
         var registeredCount = 0;
@@ -226,22 +223,52 @@ public class Shop_PlayerModels : BasePlugin
         );
     }
 
-    private void LoadModuleConfig()
+    // Older builds kept their own config.jsonc, which !reloadmodulesconfig could not reach.
+    private void MigrateLegacyConfig(IShopCoreApiV2 api)
     {
-        serviceProvider?.Dispose();
-        serviceProvider = null;
+        var legacyPath = Path.Combine(Core.Configuration.BasePath, LegacyConfigFileName);
+        if (!File.Exists(legacyPath))
+        {
+            return;
+        }
 
-        Core.Configuration.InitializeJsonWithModel<PlayerModelsModuleConfig>(ConfigFileName, ConfigSectionName)
-            .Configure(builder => builder.AddJsonFile(ConfigFileName, false, true));
+        try
+        {
+            var legacyConfig = new ConfigurationBuilder()
+                .AddJsonFile(legacyPath, optional: false, reloadOnChange: false)
+                .Build()
+                .GetSection(ConfigSectionName)
+                .Get<PlayerModelsModuleConfig>() ?? new PlayerModelsModuleConfig();
 
-        ServiceCollection services = new();
-        services.AddSwiftly(Core)
-                .AddOptionsWithValidateOnStart<PlayerModelsModuleConfig>()
-                .BindConfiguration(ConfigSectionName);
+            NormalizeConfig(legacyConfig);
+            if (legacyConfig.Items.Count == 0)
+            {
+                legacyConfig.Items = CreateDefaultConfig().Items;
+            }
 
-        serviceProvider = services.BuildServiceProvider();
-        moduleConfig = serviceProvider.GetRequiredService<IOptions<PlayerModelsModuleConfig>>().Value;
-        NormalizeConfig(moduleConfig);
+            // False when the new file already exists: that one wins, and the old file is left alone.
+            if (!api.SaveModuleConfig(ModulePluginId, legacyConfig, ConfigFileName, ConfigSectionName, overwrite: false))
+            {
+                return;
+            }
+
+            var renamedPath = legacyPath + ".migrated";
+            File.Move(legacyPath, renamedPath, overwrite: true);
+            Core.Logger.LogInformation(
+                "Moved the Shop_PlayerModels config into configs/plugins/ShopCore/modules/{FileName}. The old file is now '{RenamedPath}' and is no longer read.",
+                ConfigFileName,
+                renamedPath
+            );
+        }
+        catch (Exception ex)
+        {
+            Core.Logger.LogWarning(
+                ex,
+                "Could not move the Shop_PlayerModels config from '{LegacyPath}'. Copy its items into configs/plugins/ShopCore/modules/{FileName}, then delete it.",
+                legacyPath,
+                ConfigFileName
+            );
+        }
     }
 
     private void UnregisterItemsAndHandlers()

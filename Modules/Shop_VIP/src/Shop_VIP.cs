@@ -162,7 +162,6 @@ public partial class Shop_VIP : BasePlugin
         shopApi.OnBeforeItemPurchase += OnBeforeItemPurchase;
         shopApi.OnItemPurchased += OnItemPurchased;
         shopApi.OnItemSold += OnItemSold;
-        shopApi.OnItemExpired += OnItemExpired;
         handlersRegistered = true;
 
         Core.Logger.LogInformation(
@@ -184,7 +183,6 @@ public partial class Shop_VIP : BasePlugin
         shopApi.OnBeforeItemPurchase -= OnBeforeItemPurchase;
         shopApi.OnItemPurchased -= OnItemPurchased;
         shopApi.OnItemSold -= OnItemSold;
-        shopApi.OnItemExpired -= OnItemExpired;
 
         foreach (var itemId in registeredItemIds)
         {
@@ -203,7 +201,8 @@ public partial class Shop_VIP : BasePlugin
             return;
         }
 
-        if (vipApi is null)
+        // GiveClientVip does nothing until VIPCore is ready, which would take the credits for nothing.
+        if (vipApi is null || !vipApi.IsCoreReady())
         {
             context.Block($"{GetPrefix(context.Player)} VIP system is not available right now.");
             return;
@@ -238,33 +237,33 @@ public partial class Shop_VIP : BasePlugin
         });
     }
 
+    // The grant carries the item's length, so VIPCore ends it on time. Only a sale takes it back early.
     private void OnItemSold(IPlayer player, ShopItemDefinition item, decimal _)
-    {
-        HandleItemRemoval(player, item);
-    }
-
-    private void OnItemExpired(IPlayer player, ShopItemDefinition item)
-    {
-        HandleItemRemoval(player, item);
-    }
-
-    private void HandleItemRemoval(IPlayer player, ShopItemDefinition item)
     {
         if (!TryGetRuntime(item.Id, out var runtime) || vipApi is null)
         {
             return;
         }
 
-        if (runtime.GrantBehavior == VipGrantBehavior.TemporaryGrant)
+        if (runtime.GrantBehavior != VipGrantBehavior.TemporaryGrant)
         {
-            var capturedVipApi = vipApi;
-            Core.Scheduler.NextWorldUpdate(() =>
-            {
-                capturedVipApi.RemoveClientVip(player);
-                var loc = Core.Translation.GetPlayerLocalizer(player);
-                player.SendMessage(MessageType.Chat, $"{GetPrefix(player)} {loc["shop.vip.removed"]}");
-            });
+            return;
         }
+
+        var capturedVipApi = vipApi;
+        Core.Scheduler.NextWorldUpdate(() =>
+        {
+            // RemoveClientVip drops every group the player holds on this server, not just the one sold.
+            if (!player.IsValid
+                || !string.Equals(capturedVipApi.GetClientVipGroup(player), runtime.TargetGroup, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            capturedVipApi.RemoveClientVip(player);
+            var loc = Core.Translation.GetPlayerLocalizer(player);
+            player.SendMessage(MessageType.Chat, $"{GetPrefix(player)} {loc["shop.vip.removed"]}");
+        });
     }
 
     private bool TryGetRuntime(string itemId, out VipShopItemRuntime runtime)
@@ -351,16 +350,23 @@ public partial class Shop_VIP : BasePlugin
         );
 
         var vipTime = 0;
-        if (template.GrantBehavior == VipGrantBehavior.PermanentRecord && template.ShopDurationHours.HasValue && template.ShopDurationHours > 0)
+        if (template.ShopDurationHours is > 0)
         {
             var hours = template.ShopDurationHours.Value;
-            vipTime = runtimeSettings.VipTimeMode switch
+            var units = ToVipTimeUnits(hours, runtimeSettings.VipTimeMode);
+
+            // VIPCore reads 0 as permanent, so a timed grant is rounded up, never down to 0.
+            vipTime = (int)Math.Clamp(Math.Ceiling(units), 1m, int.MaxValue);
+            if (vipTime != units)
             {
-                1 => (int)(hours * 60),
-                2 => (int)hours,
-                3 => (int)(hours / 24),
-                _ => (int)(hours * 3600)
-            };
+                Core.Logger.LogWarning(
+                    "[Shop_VIP] Item '{ItemId}' lasts {Hours} h, which VipTimeMode {VipTimeMode} can't express exactly, so VIPCore grants {VipTime}.",
+                    id,
+                    hours,
+                    runtimeSettings.VipTimeMode,
+                    vipTime
+                );
+            }
         }
 
         runtime = new VipShopItemRuntime(
@@ -373,6 +379,18 @@ public partial class Shop_VIP : BasePlugin
         return true;
     }
 
+    private static decimal ToVipTimeUnits(double hours, int vipTimeMode)
+    {
+        var length = (decimal)Math.Min(hours, 1_000_000d);
+        return vipTimeMode switch
+        {
+            1 => length * 60m,
+            2 => length,
+            3 => length / 24m,
+            _ => length * 3600m
+        };
+    }
+
     private VipShopModuleConfig CreateDefaultConfig()
     {
         return new VipShopModuleConfig
@@ -380,7 +398,6 @@ public partial class Shop_VIP : BasePlugin
             Settings = new VipShopModuleSettings
             {
                 Category = DefaultCategory,
-                AllowPurchaseWithoutVipCore = false,
                 VipTimeMode = 0
             },
             Items =
@@ -457,7 +474,6 @@ public partial class Shop_VIP : BasePlugin
     internal sealed class VipShopModuleSettings
     {
         public string Category { get; set; } = string.Empty;
-        public bool AllowPurchaseWithoutVipCore { get; set; }
         // Must match VIPCore's TimeMode: 0 = seconds, 1 = minutes, 2 = hours, 3 = days
         public int VipTimeMode { get; set; } = 0;
     }

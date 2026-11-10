@@ -19,7 +19,7 @@ public sealed partial class Shop_CustomWeapon
         try
         {
             var configPath = Path.Combine(
-                Core.CSGODirectory,
+                Core.GameFilesDirectory,
                 "addons", "swiftlys2", "configs", "plugins",
                 "ShopCore", "modules", ConfigFileName
             );
@@ -163,6 +163,7 @@ public sealed partial class Shop_CustomWeapon
             registeredCount++;
         }
 
+        shopApi.OnBeforeItemPurchase += OnBeforeItemPurchase;
         shopApi.OnItemPurchased += OnItemPurchased;
         shopApi.OnItemToggled += OnItemToggled;
         shopApi.OnItemSold += OnItemSold;
@@ -180,6 +181,7 @@ public sealed partial class Shop_CustomWeapon
     {
         if (shopApi is not null && handlersRegistered)
         {
+            shopApi.OnBeforeItemPurchase -= OnBeforeItemPurchase;
             shopApi.OnItemPurchased -= OnItemPurchased;
             shopApi.OnItemToggled -= OnItemToggled;
             shopApi.OnItemSold -= OnItemSold;
@@ -194,6 +196,7 @@ public sealed partial class Shop_CustomWeapon
 
         registeredItemIds.Clear();
         runtimeByItemId.Clear();
+        purchasesWithoutGrant.Clear();
         originalSubclassByWeaponAddress.Clear();
         originalModelByWeaponAddress.Clear();
         originalNameByWeaponAddress.Clear();
