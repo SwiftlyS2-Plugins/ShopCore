@@ -26,7 +26,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="resources/gamedata/**/*;resources/templates/**/*;resources/translations/**/*">
+    <Content Include="resources/gamedata/**/*;resources/translations/**/*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
