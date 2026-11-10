@@ -21,6 +21,7 @@ public class Shop_Coinflip : BasePlugin
     private const string TemplateFileName = "coinflip_config.jsonc";
     private const string TemplateSectionName = "Main";
     private const string FallbackShopPrefix = "[gold]★[red] [Store][default]";
+    private static readonly string[] DefaultCommands = ["coinflip", "cf"];
 
     private readonly Dictionary<ulong, DateTimeOffset> cooldownBySteam = new();
     private readonly List<Guid> registeredCommands = new();
@@ -86,18 +87,6 @@ public class Shop_Coinflip : BasePlugin
             TemplateSectionName
         );
         NormalizeConfig(settings);
-
-        if (!settings.Commands.Any())
-        {
-            settings = CreateDefaultConfig();
-            _ = shopApi.SaveModuleConfig(
-                ModulePluginId,
-                settings,
-                TemplateFileName,
-                TemplateSectionName,
-                overwrite: true
-            );
-        }
 
         UnregisterCommands();
         RegisterCommands();
@@ -294,7 +283,7 @@ public class Shop_Coinflip : BasePlugin
 
     private static void NormalizeConfig(CoinflipModuleConfig config)
     {
-        config.Commands = NormalizeCommandList(config.Commands, ["coinflip"]);
+        config.Commands = NormalizeCommandList(config.Commands, DefaultCommands);
 
         if (config.MinimumBet < 1)
         {
@@ -335,28 +324,13 @@ public class Shop_Coinflip : BasePlugin
 
         return fallback.ToList();
     }
-
-    private static CoinflipModuleConfig CreateDefaultConfig()
-    {
-        return new CoinflipModuleConfig
-        {
-            Enabled = true,
-            Commands = ["coinflip", "cf"],
-            RegisterAsRawCommands = false,
-            CommandPermission = string.Empty,
-            MinimumBet = 10,
-            MaximumBet = 5000,
-            BetCooldownSeconds = 15,
-            WinChance = 0.5,
-            WinMultiplier = 2.0f
-        };
-    }
 }
 
 internal sealed class CoinflipModuleConfig
 {
     public bool UseCorePrefix { get; set; } = true;
     public bool Enabled { get; set; } = true;
+    // Stays empty: the config binder appends to a pre-filled list, so defaults here could never be removed.
     public List<string> Commands { get; set; } = [];
     public bool RegisterAsRawCommands { get; set; } = false;
     public string CommandPermission { get; set; } = string.Empty;
