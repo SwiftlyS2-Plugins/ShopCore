@@ -223,6 +223,11 @@ public partial class ShopCore : BasePlugin
         Core.Logger.LogDebug(message, args);
     }
 
+    internal void LogError(Exception exception, string message, params object[] args)
+    {
+        Core.Logger.LogError(exception, message, args);
+    }
+
     internal DatabaseConnectionInfo? TryGetDatabaseConnectionInfo(string connectionName)
     {
         try

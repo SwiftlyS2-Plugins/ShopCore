@@ -34,6 +34,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
     private readonly Dictionary<string, HashSet<string>> categoryToIds = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyCollection<ShopItemDefinition> cachedItems = Array.Empty<ShopItemDefinition>();
     private readonly HashSet<string> knownModulePluginIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> unreadableModuleConfigPaths = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> moduleConfigFileOwners = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<ulong, long> previewCooldownUntilUnixMs = new();
     private IShopLedgerStore ledgerStore = new InMemoryShopLedgerStore(2000);
@@ -252,6 +253,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             knownModulePluginIds.Add(trimmedModulePluginId);
         }
 
+        string? centralizedConfigPath = null;
         try
         {
             var normalizedFileName = NormalizeRelativeConfigPath(effectiveFileName);
@@ -266,7 +268,7 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
             }
             TrackModuleConfigOwnership(trimmedModulePluginId, normalizedFileName);
 
-            var centralizedConfigPath = plugin.BuildCentralModuleConfigPath(trimmedModulePluginId, normalizedFileName);
+            centralizedConfigPath = plugin.BuildCentralModuleConfigPath(trimmedModulePluginId, normalizedFileName);
             var legacyModuleScopedConfigPath = plugin.BuildLegacyModuleScopedCentralModuleConfigPath(trimmedModulePluginId, normalizedFileName);
 
             EnsureCentralizedConfig(
@@ -298,7 +300,20 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
                 ? configRoot.Get<T>()
                 : configRoot.GetSection(sectionName).Get<T>();
 
+            MarkModuleConfigReadable(centralizedConfigPath, readable: true);
             return result ?? new T();
+        }
+        catch (Exception ex) when (centralizedConfigPath is not null && File.Exists(centralizedConfigPath))
+        {
+            // Modules answer an empty config by saving their defaults, which would replace the operator's file.
+            MarkModuleConfigReadable(centralizedConfigPath, readable: false);
+            plugin.LogError(
+                ex,
+                "Module config '{ConfigPath}' could not be read. '{ModulePluginId}' runs on its defaults, and the file is not overwritten. Fix it, then run !reloadmodulesconfig.",
+                centralizedConfigPath,
+                modulePluginId
+            );
+            return new T();
         }
         catch (Exception ex)
         {
@@ -347,6 +362,16 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
                 return false;
             }
 
+            if (IsModuleConfigUnreadable(centralizedConfigPath) && File.Exists(centralizedConfigPath))
+            {
+                plugin.LogWarning(
+                    "Not overwriting module config '{ConfigPath}' for '{ModulePluginId}' because it could not be read.",
+                    centralizedConfigPath,
+                    modulePluginId
+                );
+                return false;
+            }
+
             var directory = Path.GetDirectoryName(centralizedConfigPath);
             if (!string.IsNullOrWhiteSpace(directory))
             {
@@ -391,6 +416,29 @@ internal sealed class ShopCoreApiV2 : IShopCoreApiV2
         lock (knownModulesSync)
         {
             return knownModulePluginIds.ToArray();
+        }
+    }
+
+    private void MarkModuleConfigReadable(string configPath, bool readable)
+    {
+        lock (knownModulesSync)
+        {
+            if (readable)
+            {
+                unreadableModuleConfigPaths.Remove(configPath);
+            }
+            else
+            {
+                unreadableModuleConfigPaths.Add(configPath);
+            }
+        }
+    }
+
+    private bool IsModuleConfigUnreadable(string configPath)
+    {
+        lock (knownModulesSync)
+        {
+            return unreadableModuleConfigPaths.Contains(configPath);
         }
     }
 
