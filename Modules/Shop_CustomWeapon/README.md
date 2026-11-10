@@ -232,6 +232,8 @@ From the module directory:
 dotnet build
 ```
 
+The output goes to `build/plugins/Shop_CustomWeapon/` at the repository root, and the release ships it in `Modules.zip`.
+
 ## Notes
 
 - Knife variants are resolved through `ItemDefinitionIndex`.

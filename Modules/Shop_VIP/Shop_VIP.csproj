@@ -8,8 +8,8 @@
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <AssemblyName>Shop_VIP</AssemblyName>
-    <OutputPath>$(MSBuildThisFileDirectory)build/</OutputPath>
-    <PublishDir>$(OutputPath)publish/Shop_VIP</PublishDir>
+    <OutputPath>$(ProjectDir)..\..\build\plugins\Shop_VIP\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -34,13 +34,5 @@
   <ItemGroup>
     <Compile Remove="examples\**\*.cs" />
   </ItemGroup>
-
-  <Target Name="CreateZip" AfterTargets="Publish">
-    <ItemGroup>
-      <PublishFiles Include="$(PublishDir)**\*.*" />
-    </ItemGroup>
-    
-    <ZipDirectory SourceDirectory="$(PublishDir)../" DestinationFile="$(OutputPath)../$(AssemblyName).zip" Overwrite="true" />
-  </Target>
 
 </Project> 
