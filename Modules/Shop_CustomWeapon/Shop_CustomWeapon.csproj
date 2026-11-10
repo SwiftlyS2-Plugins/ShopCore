@@ -15,7 +15,7 @@
   <ItemGroup>
     <!-- No direct Microsoft.Extensions.* references: SwiftlyS2.CS2 brings them at the version SwiftlyS2
          itself builds against, and pinning them here fails restore (NU1605) whenever the SDK raises them. -->
-    <PackageReference Include="SwiftlyS2.CS2" Version="1.2.1" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="SwiftlyS2.CS2" Version="1.5.0" ExcludeAssets="runtime" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>

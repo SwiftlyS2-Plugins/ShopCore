@@ -19,7 +19,7 @@ public sealed partial class Shop_CustomWeapon
         try
         {
             var configPath = Path.Combine(
-                Core.CSGODirectory,
+                Core.GameFilesDirectory,
                 "addons", "swiftlys2", "configs", "plugins",
                 "ShopCore", "modules", ConfigFileName
             );
