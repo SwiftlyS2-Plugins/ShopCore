@@ -30,11 +30,28 @@ public partial class ShopCore
         _ = Core.Configuration
             .Configure(builder => { _ = builder.AddJsonFile(ConfigFileName, optional: false, reloadOnChange: true); });
 
-        Settings = Core.Configuration.Manager
-            .GetSection(ConfigSectionName)
-            .Get<ShopCoreConfig>() ?? new ShopCoreConfig();
+        // The binder appends to a list that already holds items, so default command names could never be
+        // renamed away. Bind into empty lists; NormalizeConfiguration restores the defaults of an empty one.
+        var settings = new ShopCoreConfig();
+        ClearCommandLists(settings.Commands);
+        Core.Configuration.Manager.GetSection(ConfigSectionName).Bind(settings);
+        Settings = settings;
 
         NormalizeConfiguration();
+    }
+
+    private static void ClearCommandLists(CommandsConfig commands)
+    {
+        commands.OpenShopMenu = [];
+        commands.OpenBuyMenu = [];
+        commands.OpenInventoryMenu = [];
+        commands.ShowCredits = [];
+        commands.GiftCredits = [];
+        commands.Admin.GiveCredits = [];
+        commands.Admin.RemoveCredits = [];
+        commands.Admin.ReloadCore = [];
+        commands.Admin.ReloadModulesConfig = [];
+        commands.Admin.Status = [];
     }
 
     private void NormalizeConfiguration()
