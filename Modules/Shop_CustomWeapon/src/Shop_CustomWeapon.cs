@@ -3,6 +3,7 @@ using SwiftlyS2.Shared.Plugins;
 using SwiftlyS2.Shared;
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -34,6 +35,7 @@ public sealed partial class Shop_CustomWeapon : BasePlugin
     private const string ConfigFileName = "customweapon_items.jsonc";
     private const string ConfigSectionName = "Main";
     private const string DefaultCategory = "Weapons/Custom";
+    private const string DebugCommandPermission = "shopcore.admin.debug";
 
     private readonly HashSet<string> registeredItemIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, CustomWeaponRuntime> runtimeByItemId = new(StringComparer.OrdinalIgnoreCase);
@@ -44,6 +46,7 @@ public sealed partial class Shop_CustomWeapon : BasePlugin
     private readonly object previewSync = new();
 
     private readonly HashSet<string> earlyPrecacheModels = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<(ulong SteamId, string ItemId), byte> purchasesWithoutGrant = new();
 
     private IShopCoreApiV2? shopApi;
     private bool handlersRegistered;
@@ -226,7 +229,7 @@ public sealed partial class Shop_CustomWeapon : BasePlugin
         return HookResult.Continue;
     }
 
-    [Command("cw_debug", registerRaw: true)]
+    [Command("cw_debug", registerRaw: true, permission: DebugCommandPermission)]
     public void DebugCommand(ICommandContext context)
     {
         Core.Logger.LogInformation("[CW_DEBUG] RuntimeItems={Count}, EarlyPrecache={Early}, Registered={Reg}",

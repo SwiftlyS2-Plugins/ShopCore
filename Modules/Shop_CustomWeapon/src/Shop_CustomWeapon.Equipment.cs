@@ -136,6 +136,27 @@ public sealed partial class Shop_CustomWeapon
         });
     }
 
+    // ShopCore equips a bought item through OnItemToggled, so the purchase marks that equip for it to skip.
+    private void OnBeforeItemPurchase(ShopBeforePurchaseContext context)
+    {
+        var item = context.Item;
+        if (!item.IsEquipable || item.Type == ShopItemType.Consumable)
+        {
+            return;
+        }
+
+        if (!TryGetRuntime(item.Id, out var runtime) || runtime.GrantOnPurchase)
+        {
+            return;
+        }
+
+        var key = (context.Player.SteamID, item.Id);
+        if (purchasesWithoutGrant.TryAdd(key, 0))
+        {
+            Core.Scheduler.NextWorldUpdate(() => purchasesWithoutGrant.TryRemove(key, out _));
+        }
+    }
+
     private void OnItemPurchased(IPlayer player, ShopItemDefinition item)
     {
         if (item.IsEquipable && item.Type != ShopItemType.Consumable)
@@ -169,6 +190,12 @@ public sealed partial class Shop_CustomWeapon
         if (enabled)
         {
             EnforceExclusiveEquip(player, item.Id, runtime);
+
+            // GrantOnPurchase off: a just-bought item first applies at the next spawn.
+            if (purchasesWithoutGrant.ContainsKey((player.SteamID, item.Id)))
+            {
+                return;
+            }
 
             if (WeaponHelpers.IsKnifeWeapon(runtime.BaseWeapon))
             {
