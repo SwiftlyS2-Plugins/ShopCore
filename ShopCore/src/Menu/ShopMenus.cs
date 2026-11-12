@@ -108,9 +108,10 @@ public partial class ShopCore
             var category = categoryGroup.Key;
             var displayCategory = LocalizeCategorySegment(player, category);
             var count = categoryGroup.Count();
-            _ = builder.Add(new SubmenuComponent(
+            _ = builder.Add(CategoryEntry(
                 Localize(player, "shop.menu.category.entry", displayCategory, count),
-                session => BuildBuySubcategoryOrItemsMenu(session.Player, category)));
+                session => BuildBuySubcategoryOrItemsMenu(session.Player, category),
+                categoryGroup));
         }
 
         return BuildMenu(player, builder);
@@ -150,9 +151,10 @@ public partial class ShopCore
                 ? Localize(player, "shop.menu.subcategory.general")
                 : LocalizeSubcategorySegment(player, subcategory);
             var count = subgroup.Count();
-            _ = builder.Add(new SubmenuComponent(
+            _ = builder.Add(CategoryEntry(
                 Localize(player, "shop.menu.category.entry", displayName, count),
-                session => BuildBuyItemsMenu(session.Player, category, subcategory)));
+                session => BuildBuyItemsMenu(session.Player, category, subcategory),
+                subgroup));
         }
 
         return BuildMenu(player, builder);
@@ -247,9 +249,10 @@ public partial class ShopCore
             var category = categoryGroup.Key;
             var displayCategory = LocalizeCategorySegment(player, category);
             var count = categoryGroup.Count();
-            _ = builder.Add(new SubmenuComponent(
+            _ = builder.Add(CategoryEntry(
                 Localize(player, "shop.menu.category.entry", displayCategory, count),
-                session => BuildInventorySubcategoryOrItemsMenu(session.Player, category, inventorySnapshot)));
+                session => BuildInventorySubcategoryOrItemsMenu(session.Player, category, inventorySnapshot),
+                categoryGroup.Select(entry => entry.Item)));
         }
 
         return BuildMenu(player, builder);
@@ -293,9 +296,10 @@ public partial class ShopCore
                 ? Localize(player, "shop.menu.subcategory.general")
                 : LocalizeSubcategorySegment(player, subcategory);
             var count = subgroup.Count();
-            _ = builder.Add(new SubmenuComponent(
+            _ = builder.Add(CategoryEntry(
                 Localize(player, "shop.menu.category.entry", displayName, count),
-                session => BuildInventoryItemsMenu(session.Player, category, subcategory, snapshot)));
+                session => BuildInventoryItemsMenu(session.Player, category, subcategory, snapshot),
+                subgroup.Select(entry => entry.Item)));
         }
 
         return BuildMenu(player, builder);
@@ -404,6 +408,12 @@ public partial class ShopCore
         // A page's Tag is the item it stands for, so any renderer can identify it.
         menu.Tag = item;
         return menu;
+    }
+
+    // A category row's Tag is the items it opens, so any renderer can describe it.
+    private static SubmenuComponent CategoryEntry(string text, Func<IMenuSession, IMenu?> open, IEnumerable<ShopItemDefinition> items)
+    {
+        return new SubmenuComponent(text, open) { Tag = items.ToArray() };
     }
 
     private IMenuBuilder CreateBaseMenuBuilder(IPlayer player, string menuId, string titleKey, params object[] args)
